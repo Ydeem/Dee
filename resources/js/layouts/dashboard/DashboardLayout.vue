@@ -2,7 +2,6 @@
 import LoaderWrapper from './LoaderWrapper.vue';
 import VerticalSidebarVue from './vertical-sidebar/VerticalSidebar.vue';
 import VerticalHeaderVue from './vertical-header/VerticalHeader.vue';
-import ExtraBox from './vertical-sidebar/extrabox/ExtraBox.vue';
 import FooterPanel from './footer/FooterPanel.vue';
 import { useCustomizerStore } from '../../stores/customizer';
 const customizer = useCustomizerStore();
@@ -26,11 +25,6 @@ const customizer = useCustomizerStore();
       <v-main class="page-wrapper">
         <v-container fluid>
           <div>
-            <div class="d-flex justify-end mb-4">
-              <div style="width: 360px; max-width: 100%">
-                <ExtraBox />
-              </div>
-            </div>
             <!-- Loader start -->
             <LoaderWrapper />
             <!-- Loader end -->

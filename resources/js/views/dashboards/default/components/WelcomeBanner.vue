@@ -1,55 +1,98 @@
 <script setup lang="ts">
-// assets
-import Banner from '@/assets/images/analytics/welcome-banner.png';
+import { computed, onMounted, ref } from 'vue';
+import axios from 'axios';
+import { usePage } from '@inertiajs/vue3';
+
+type DashboardSummary = {
+  on_leave: number;
+  pending_approvals: number;
+  open_positions: number;
+};
+
+const page = usePage();
+const isLoading = ref(true);
+const summary = ref<DashboardSummary>({
+  on_leave: 0,
+  pending_approvals: 0,
+  open_positions: 0
+});
+
+const todayLabel = new Intl.DateTimeFormat('en-US', {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric'
+}).format(new Date());
+
+const userFullName = computed(() => {
+  return ((page.props as any)?.auth?.user?.name as string) || 'Team Lead';
+});
+
+async function loadSummary() {
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get('/api/hr/dashboard/summary');
+    summary.value = {
+      on_leave: Number(data?.on_leave ?? 0),
+      pending_approvals: Number(data?.pending_approvals ?? 0),
+      open_positions: Number(data?.open_positions ?? 0)
+    };
+  } catch (error) {
+    summary.value = {
+      on_leave: 0,
+      pending_approvals: 0,
+      open_positions: 0
+    };
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+onMounted(loadSummary);
 </script>
 
 <template>
-  <v-card class="welcomeBanner text-surface overflow-hidden" elevation="0" rounded="lg">
-    <v-card-text class="py-5 px-md-12 px-6">
-      <v-row>
-        <v-col cols="12" xl="6" md="7" sm="10">
-          <div class="pb-md-8 pt-md-7 pt-5 pb-6">
-            <h2 class="text-sm-h2 text-h3">Explore Redesigned Able Pro</h2>
-            <p class="text-h6 mb-7">
-              The Brand new User Interface with power of Vuetify Components. Explore the Endless possibilities with Able Pro.
-            </p>
-            <v-btn
-              color="white"
-              href="https://codedthemes.com/item/able-pro-dashboard-templates/"
-              class="text-none"
-              target="_blank"
-              variant="outlined"
-              rounded="md"
-              >Download now</v-btn
-            >
+  <v-skeleton-loader v-if="isLoading" type="article" class="rounded-lg" />
+
+  <v-card v-else class="hr-welcome-banner text-surface overflow-hidden" elevation="0" rounded="lg">
+    <v-card-text class="py-6 px-md-12 px-6">
+      <v-row class="align-center">
+        <v-col cols="12" md="8">
+          <h2 class="text-sm-h2 text-h3 mb-2">Welcome back, {{ userFullName }} &#128075;</h2>
+          <p class="text-h6 mb-5">{{ todayLabel }}</p>
+
+          <div class="d-flex flex-wrap ga-3 mb-6">
+            <v-chip color="warning" variant="flat" rounded="pill"> {{ summary.on_leave }} Employees on Leave Today </v-chip>
+            <v-chip color="info" variant="flat" rounded="pill"> {{ summary.pending_approvals }} Pending Approvals </v-chip>
+            <v-chip color="success" variant="flat" rounded="pill"> {{ summary.open_positions }} Open Job Positions </v-chip>
           </div>
+
+          <v-btn color="white" class="text-none" variant="outlined" rounded="md"> View HR Overview -> </v-btn>
         </v-col>
-        <v-col cols="12" xl="6" md="5" class="d-md-block d-none">
-          <div class="pe-8">
-            <v-img :src="Banner" cover class="ms-auto" width="200" alt="welcome banner" />
+
+        <v-col cols="12" md="4" class="d-flex justify-center justify-md-end">
+          <div class="workforce-circle">
+            <v-icon icon="mdi-account-group" size="84" color="white" />
           </div>
         </v-col>
       </v-row>
     </v-card-text>
   </v-card>
 </template>
+
 <style lang="scss">
-.welcomeBanner {
-  background: rgb(var(--v-theme-darkprimary));
-  position: relative;
-  &::after {
-    content: '';
-    background-image: url(@/assets/images/analytics/img-dropbox-bg.svg);
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: -1;
-    opacity: 0.5;
-    background-position: bottom right;
-    background-size: 100%;
-    background-repeat: no-repeat;
-  }
+.hr-welcome-banner {
+  background: linear-gradient(120deg, #4f6ef7 0%, #6a3de8 100%);
+}
+
+.workforce-circle {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
 }
 </style>

@@ -1,46 +1,64 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { useTheme } from 'vuetify';
-import SvgSprite from '@/components/shared/SvgSprite.vue';
+import { computed, onMounted, ref } from 'vue';
+import axios from 'axios';
 
-const theme = useTheme();
-const primaryColor = theme.current.value.colors.primary;
+type AttendanceChartResponse = {
+  months?: string[];
+  attendance?: number[];
+  leave?: number[];
+};
 
-const menulist = ref(['Today', 'Weekly', 'Monthly']);
+const isLoading = ref(true);
+const months = ref(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+const attendanceSeries = ref([88, 90, 91, 92, 90, 91, 93, 94, 95, 95, 96, 96.2]);
+const leaveSeries = ref([12, 10, 9, 8, 10, 9, 7, 6, 5, 5, 4, 3.8]);
+
+const currentAttendance = computed(() => {
+  return attendanceSeries.value[attendanceSeries.value.length - 1] ?? 0;
+});
+
+const deltaAttendance = computed(() => {
+  const length = attendanceSeries.value.length;
+  const previous = length > 1 ? attendanceSeries.value[length - 2] : currentAttendance.value;
+  return Number((currentAttendance.value - previous).toFixed(1));
+});
+
+const deltaPrefix = computed(() => (deltaAttendance.value >= 0 ? '+' : ''));
 
 const chartOptions = computed(() => {
   return {
     chart: {
       type: 'area',
-      height: 260,
-      fontFamily: `inherit`,
+      height: 280,
+      fontFamily: 'inherit',
       foreColor: 'rgba(var(--v-theme-lightText), var(--v-high-opacity))',
       toolbar: false
     },
-    colors: [primaryColor],
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    colors: ['#4f6ef7', '#f77c4f'],
     dataLabels: {
       enabled: false
     },
     stroke: {
       curve: 'smooth',
-      width: 1
+      width: [2.5, 2.5]
     },
     fill: {
-      type: 'gradient',
+      type: ['gradient', 'solid'],
       gradient: {
         shadeIntensity: 1,
         type: 'vertical',
         inverseColors: false,
-        opacityFrom: 0.5,
-        opacityTo: 0
-      }
+        opacityFrom: 0.45,
+        opacityTo: 0.05
+      },
+      opacity: [0.4, 0.2]
     },
     grid: {
       borderColor: 'rgba(var(--v-theme-borderLight), var(--v-high-opacity))',
       strokeDashArray: 4
     },
     xaxis: {
+      categories: months.value,
       axisBorder: {
         show: false
       },
@@ -48,48 +66,86 @@ const chartOptions = computed(() => {
         show: false
       }
     },
+    yaxis: {
+      min: 0,
+      max: 100,
+      tickAmount: 5,
+      labels: {
+        formatter: (value: number) => `${Math.round(value)}%`
+      }
+    },
     legend: {
-      show: true
+      show: true,
+      position: 'top',
+      horizontalAlign: 'left'
+    },
+    tooltip: {
+      y: {
+        formatter: (value: number) => `${value.toFixed(1)}%`
+      }
     }
   };
 });
 
-const areaChart = {
-  series: [
-    {
-      name: 'Page Views',
-      data: [30, 60, 40, 70, 50, 90, 50, 55, 45, 60, 50, 65]
-    }
-  ]
-};
+const areaChart = computed(() => {
+  return {
+    series: [
+      {
+        name: 'Attendance Rate %',
+        data: attendanceSeries.value
+      },
+      {
+        name: 'Leave Rate %',
+        data: leaveSeries.value
+      }
+    ]
+  };
+});
+
+async function loadAttendanceChart() {
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get<AttendanceChartResponse>('/api/hr/dashboard/attendance-chart');
+    const responseMonths = Array.isArray(data?.months) && data.months.length ? data.months : months.value;
+    const responseAttendance =
+      Array.isArray(data?.attendance) && data.attendance.length ? data.attendance.map((value) => Number(value)) : attendanceSeries.value;
+    const responseLeave = Array.isArray(data?.leave) && data.leave.length ? data.leave.map((value) => Number(value)) : leaveSeries.value;
+
+    months.value = responseMonths;
+    attendanceSeries.value = responseAttendance;
+    leaveSeries.value = responseLeave;
+  } catch (error) {
+    months.value = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    attendanceSeries.value = [88, 90, 91, 92, 90, 91, 93, 94, 95, 95, 96, 96.2];
+    leaveSeries.value = [12, 10, 9, 8, 10, 9, 7, 6, 5, 5, 4, 3.8];
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+onMounted(loadAttendanceChart);
 </script>
+
 <template>
-  <v-card variant="outlined" class="bg-surface" rounded="lg">
+  <v-skeleton-loader v-if="isLoading" type="card" class="rounded-lg" />
+
+  <v-card v-else variant="outlined" class="bg-surface hr-card-shadow" rounded="lg">
     <v-card-text class="pb-2">
       <div class="d-flex justify-space-between align-center">
-        <h5 class="text-h5 mb-0">Repeat customer rate</h5>
-        <v-menu width="150" location="start">
-          <template v-slot:activator="{ props }">
-            <v-btn icon color="secondary" aria-label="menu" variant="text" rounded="md" size="small" v-bind="props">
-              <SvgSprite name="custom-more-outline" style="width: 20px; height: 20px" />
-            </v-btn>
-          </template>
-          <v-list elevation="24" class="pa-3" rounded="md" aria-label="menu" aria-busy="true">
-            <v-list-item density="compact" rounded="md" color="secondary" v-for="(item, index) in menulist" :key="index" :value="index">
-              <v-list-item-title class="text-h6 text-lightText">{{ item }}</v-list-item-title>
-            </v-list-item>
-          </v-list>
-        </v-menu>
+        <h5 class="text-h5 mb-0">Attendance Overview</h5>
+        <v-chip color="success" variant="flat" size="small" rounded="md">
+          {{ currentAttendance.toFixed(1) }}% {{ deltaPrefix }}{{ deltaAttendance.toFixed(1) }}%
+        </v-chip>
       </div>
     </v-card-text>
     <v-card-item class="pt-0">
-      <div class="text-right">
-        <h6 class="text-subtitle-1">
-          5.44%
-          <v-chip color="success" variant="flat" size="small" rounded="md">+2.6%</v-chip>
-        </h6>
-      </div>
-      <apexchart type="area" height="260" :options="chartOptions" :series="areaChart.series"> </apexchart>
+      <apexchart type="area" height="280" :options="chartOptions" :series="areaChart.series" />
     </v-card-item>
   </v-card>
 </template>
+
+<style lang="scss">
+.hr-card-shadow {
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+</style>

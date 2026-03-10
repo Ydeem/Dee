@@ -1,21 +1,90 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import SvgSprite from '@/components/shared/SvgSprite.vue';
-import { useTheme } from 'vuetify';
+import { computed, onMounted, ref } from 'vue';
+import axios from 'axios';
 
-const theme = useTheme();
-const warningColor = theme.current.value.colors.warning;
-const successColor = theme.current.value.colors.success;
-const errorColor = theme.current.value.colors.error;
+type StatsResponse = {
+  total_employees?: number;
+  employees?: number;
+  on_leave_today?: number;
+  on_leave?: number;
+  open_positions?: number;
+  pending_approvals?: number;
+};
 
-const menulist = ref(['Today', 'Weekly', 'Monthly']);
+type HrStatCard = {
+  title: string;
+  value: number;
+  color: string;
+  icon: string;
+  chipClass: string;
+  changeText: string;
+  changeIcon?: string;
+  series: number[];
+};
 
-const chartOptions1 = computed(() => {
+const isLoading = ref(true);
+const stats = ref({
+  totalEmployees: 0,
+  onLeaveToday: 0,
+  openPositions: 0,
+  pendingApprovals: 0
+});
+
+const barSeries = {
+  totalEmployees: [18, 24, 32, 30, 44, 38, 46, 40, 48, 54, 50, 58],
+  onLeaveToday: [8, 12, 10, 14, 11, 16, 18, 15, 17, 14, 19, 16],
+  openPositions: [5, 6, 7, 6, 8, 7, 9, 10, 8, 9, 7, 8],
+  pendingApprovals: [4, 6, 5, 7, 8, 6, 9, 7, 6, 8, 7, 5]
+};
+
+const cards = computed<HrStatCard[]>(() => {
+  return [
+    {
+      title: 'Total Employees',
+      value: stats.value.totalEmployees,
+      color: '#4f6ef7',
+      icon: 'mdi-account-group',
+      chipClass: 'text-success',
+      changeText: '+3.2% from last month',
+      changeIcon: 'mdi-arrow-up',
+      series: barSeries.totalEmployees
+    },
+    {
+      title: 'On Leave Today',
+      value: stats.value.onLeaveToday,
+      color: '#f59e0b',
+      icon: 'mdi-calendar-remove',
+      chipClass: 'text-warning',
+      changeText: '+1 from yesterday',
+      series: barSeries.onLeaveToday
+    },
+    {
+      title: 'Open Positions',
+      value: stats.value.openPositions,
+      color: '#22c55e',
+      icon: 'mdi-briefcase-outline',
+      chipClass: 'text-success',
+      changeText: '2 new this week',
+      series: barSeries.openPositions
+    },
+    {
+      title: 'Pending Approvals',
+      value: stats.value.pendingApprovals,
+      color: '#ef4444',
+      icon: 'mdi-clock-alert-outline',
+      chipClass: 'text-error',
+      changeText: 'Requires attention',
+      series: barSeries.pendingApprovals
+    }
+  ];
+});
+
+function chartOptions(color: string) {
   return {
     chart: {
       type: 'bar',
       height: 50,
-      fontFamily: `inherit`,
+      fontFamily: 'inherit',
       sparkline: {
         enabled: true
       }
@@ -29,7 +98,7 @@ const chartOptions1 = computed(() => {
         columnWidth: '80%'
       }
     },
-    colors: ['rgba(var(--v-theme-primary), var(--v-medium-opacity))'],
+    colors: [color],
     stroke: {
       curve: 'smooth',
       width: 0
@@ -43,372 +112,76 @@ const chartOptions1 = computed(() => {
       }
     }
   };
-});
+}
 
-// chart 2
-const chartOptions2 = computed(() => {
-  return {
-    chart: {
-      type: 'bar',
-      height: 50,
-      fontFamily: `inherit`,
-      sparkline: {
-        enabled: true
-      }
-    },
-    dataLabels: {
-      enabled: false
-    },
-    plotOptions: {
-      bar: {
-        borderRadius: 2,
-        columnWidth: '80%'
-      }
-    },
-    colors: [warningColor],
-    stroke: {
-      curve: 'smooth',
-      width: 0
-    },
-    tooltip: {
-      fixed: {
-        enabled: false
-      },
-      x: {
-        show: false
-      }
-    }
-  };
-});
+async function loadStats() {
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get<StatsResponse>('/api/hr/dashboard/stats');
+    stats.value = {
+      totalEmployees: Number(data?.total_employees ?? data?.employees ?? 0),
+      onLeaveToday: Number(data?.on_leave_today ?? data?.on_leave ?? 0),
+      openPositions: Number(data?.open_positions ?? 0),
+      pendingApprovals: Number(data?.pending_approvals ?? 0)
+    };
+  } catch (error) {
+    stats.value = {
+      totalEmployees: 0,
+      onLeaveToday: 0,
+      openPositions: 0,
+      pendingApprovals: 0
+    };
+  } finally {
+    isLoading.value = false;
+  }
+}
 
-// chart 3
-const chartOptions3 = computed(() => {
-  return {
-    chart: {
-      type: 'bar',
-      height: 50,
-      fontFamily: `inherit`,
-      sparkline: {
-        enabled: true
-      }
-    },
-    dataLabels: {
-      enabled: false
-    },
-    plotOptions: {
-      bar: {
-        borderRadius: 2,
-        columnWidth: '80%'
-      }
-    },
-    colors: [successColor],
-    stroke: {
-      curve: 'smooth',
-      width: 0
-    },
-    tooltip: {
-      fixed: {
-        enabled: false
-      },
-      x: {
-        show: false
-      }
-    }
-  };
-});
-
-// chart 4
-const chartOptions4 = computed(() => {
-  return {
-    chart: {
-      type: 'bar',
-      height: 50,
-      fontFamily: `inherit`,
-      sparkline: {
-        enabled: true
-      }
-    },
-    dataLabels: {
-      enabled: false
-    },
-    plotOptions: {
-      bar: {
-        borderRadius: 2,
-        columnWidth: '80%'
-      }
-    },
-    colors: [errorColor],
-    stroke: {
-      curve: 'smooth',
-      width: 0
-    },
-    tooltip: {
-      fixed: {
-        enabled: false
-      },
-      x: {
-        show: false
-      }
-    }
-  };
-});
-
-// chart 1
-const barChart1 = {
-  series: [
-    {
-      name: 'Users',
-      data: [10, 30, 40, 20, 60, 50, 20, 15, 20, 25, 30, 25]
-    }
-  ]
-};
-
-// chart 2
-const barChart2 = {
-  series: [
-    {
-      name: 'Users',
-      data: [10, 30, 40, 20, 60, 50, 20, 15, 20, 25, 30, 25]
-    }
-  ]
-};
-
-// chart 3
-const barChart3 = {
-  series: [
-    {
-      name: 'Users',
-      data: [10, 30, 40, 20, 60, 50, 20, 15, 20, 25, 30, 25]
-    }
-  ]
-};
-
-// chart 4
-const barChart4 = {
-  series: [
-    {
-      name: 'Users',
-      data: [10, 30, 40, 20, 60, 50, 20, 15, 20, 25, 30, 25]
-    }
-  ]
-};
+onMounted(loadStats);
 </script>
 
 <template>
   <v-row class="mb-0">
-    <!-- chart 1 -->
-    <v-col cols="12" md="6" lg="3">
-      <v-card variant="outlined" elevation="0" class="bg-surface" rounded="lg">
-        <v-card-text>
-          <v-list class="pt-0" aria-busy="true" aria-label="chart content">
-            <v-list-item class="pa-0">
-              <template v-slot:prepend>
-                <v-avatar variant="tonal" color="primary" rounded="md">
-                  <SvgSprite name="custom-wallet-outline" style="width: 20px; height: 20px" />
-                </v-avatar>
-              </template>
-              <h6 class="text-subtitle-1 mb-0">All Earnings</h6>
-              <template v-slot:append>
-                <v-menu width="150" location="start">
-                  <template v-slot:activator="{ props }">
-                    <v-btn icon color="secondary" aria-label="menu" variant="text" rounded="md" size="small" v-bind="props">
-                      <SvgSprite name="custom-more-outline" style="width: 20px; height: 20px; transform: rotate(90deg)" />
-                    </v-btn>
-                  </template>
-                  <v-list elevation="24" aria-label="menu" aria-busy="true" class="pa-3" rounded="md">
-                    <v-list-item
-                      density="compact"
-                      rounded="md"
-                      color="secondary"
-                      v-for="(item, index) in menulist"
-                      :key="index"
-                      :value="index"
-                    >
-                      <v-list-item-title class="text-h6 text-lightText">{{ item }}</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
-              </template>
-            </v-list-item>
-          </v-list>
-          <v-sheet class="pa-6 pb-3 mt-1" color="containerBg" rounded="lg">
-            <v-row class="widget-grid">
-              <v-col cols="7">
-                <apexchart type="bar" height="50" :options="chartOptions1" :series="barChart1.series"> </apexchart>
-              </v-col>
-              <v-col cols="5">
-                <h5 class="text-h5">$3200</h5>
-                <p class="text-body-1 text-primary mb-0">
-                  <SvgSprite name="custom-rise-outline" style="width: 16px; height: 16px; transform: rotate(45deg)" />
-                  30.6%
-                </p>
-              </v-col>
-            </v-row>
-          </v-sheet>
-        </v-card-text>
-      </v-card>
-    </v-col>
+    <template v-if="isLoading">
+      <v-col v-for="index in 4" :key="index" cols="12" sm="6" lg="3">
+        <v-skeleton-loader type="card" class="rounded-lg" />
+      </v-col>
+    </template>
 
-    <!-- chart 2 -->
-    <v-col cols="12" md="6" lg="3">
-      <v-card variant="outlined" elevation="0" class="bg-surface overflow-hidden" rounded="lg">
-        <v-card-text>
-          <v-list class="pt-0" aria-busy="true" aria-label="chart content">
-            <v-list-item class="pa-0">
-              <template v-slot:prepend>
-                <v-avatar variant="tonal" color="warning" rounded="md">
-                  <SvgSprite name="custom-page-outline" style="width: 20px; height: 20px" />
-                </v-avatar>
-              </template>
-              <h6 class="text-subtitle-1 mb-0">Page Views</h6>
-              <template v-slot:append>
-                <v-menu width="150" location="start">
-                  <template v-slot:activator="{ props }">
-                    <v-btn icon color="secondary" aria-label="menu" variant="text" rounded="md" size="small" v-bind="props">
-                      <SvgSprite name="custom-more-outline" style="width: 20px; height: 20px; transform: rotate(90deg)" />
-                    </v-btn>
-                  </template>
-                  <v-list elevation="24" aria-label="menu" aria-busy="true" class="pa-3" rounded="md">
-                    <v-list-item
-                      density="compact"
-                      rounded="md"
-                      color="secondary"
-                      v-for="(item, index) in menulist"
-                      :key="index"
-                      :value="index"
-                    >
-                      <v-list-item-title class="text-h6 text-lightText">{{ item }}</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
-              </template>
-            </v-list-item>
-          </v-list>
-          <v-sheet class="pa-6 pb-3 mt-1" color="containerBg" rounded="lg">
-            <v-row class="widget-grid">
-              <v-col cols="7">
-                <apexchart type="bar" height="50" :options="chartOptions2" :series="barChart2.series"> </apexchart>
-              </v-col>
-              <v-col cols="5">
-                <h5 class="text-h5">290+</h5>
-                <p class="text-body-1 text-warning mb-0">
-                  <SvgSprite name="custom-fall-outline" style="width: 16px; height: 16px; transform: rotate(45deg)" />
-                  30.6%
-                </p>
-              </v-col>
-            </v-row>
-          </v-sheet>
-        </v-card-text>
-      </v-card>
-    </v-col>
-
-    <!-- chart 3 -->
-    <v-col cols="12" md="6" lg="3">
-      <v-card variant="outlined" elevation="0" class="bg-surface" rounded="lg">
-        <v-card-text>
-          <v-list class="pt-0" aria-busy="true" aria-label="chart content">
-            <v-list-item class="pa-0">
-              <template v-slot:prepend>
-                <v-avatar variant="tonal" color="success" rounded="md">
-                  <SvgSprite name="custom-calendar-outline" style="width: 20px; height: 20px" />
-                </v-avatar>
-              </template>
-              <h6 class="text-subtitle-1 mb-0">Total task</h6>
-              <template v-slot:append>
-                <v-menu width="150" location="start">
-                  <template v-slot:activator="{ props }">
-                    <v-btn icon color="secondary" aria-label="menu" variant="text" rounded="md" size="small" v-bind="props">
-                      <SvgSprite name="custom-more-outline" style="width: 20px; height: 20px; transform: rotate(90deg)" />
-                    </v-btn>
-                  </template>
-                  <v-list elevation="24" aria-label="menu" aria-busy="true" class="pa-3" rounded="md">
-                    <v-list-item
-                      density="compact"
-                      rounded="md"
-                      color="secondary"
-                      v-for="(item, index) in menulist"
-                      :key="index"
-                      :value="index"
-                    >
-                      <v-list-item-title class="text-h6 text-lightText">{{ item }}</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
-              </template>
-            </v-list-item>
-          </v-list>
-          <v-sheet class="pa-6 pb-3 mt-1" color="containerBg" rounded="lg">
-            <v-row class="widget-grid">
-              <v-col cols="7">
-                <apexchart type="bar" height="50" :options="chartOptions3" :series="barChart3.series"> </apexchart>
-              </v-col>
-              <v-col cols="5">
-                <h5 class="text-h5">1468</h5>
-                <p class="text-body-1 text-success mb-0">
-                  <SvgSprite name="custom-rise-outline" style="width: 16px; height: 16px; transform: rotate(45deg)" />
-                  30.6%
-                </p>
-              </v-col>
-            </v-row>
-          </v-sheet>
-        </v-card-text>
-      </v-card>
-    </v-col>
-
-    <!-- chart 4 -->
-    <v-col cols="12" md="6" lg="3">
-      <v-card variant="outlined" elevation="0" class="bg-surface" rounded="lg">
-        <v-card-text>
-          <v-list class="pt-0" aria-busy="true" aria-label="chart content">
-            <v-list-item class="pa-0">
-              <template v-slot:prepend>
-                <v-avatar variant="tonal" color="error" rounded="md">
-                  <SvgSprite name="custom-cloud-outline-1" style="width: 20px; height: 20px" />
-                </v-avatar>
-              </template>
-              <h6 class="text-subtitle-1 mb-0">Download</h6>
-              <template v-slot:append>
-                <v-menu width="150" location="start">
-                  <template v-slot:activator="{ props }">
-                    <v-btn icon color="secondary" aria-label="menu" variant="text" rounded="md" size="small" v-bind="props">
-                      <SvgSprite name="custom-more-outline" style="width: 20px; height: 20px; transform: rotate(90deg)" />
-                    </v-btn>
-                  </template>
-                  <v-list elevation="24" aria-label="menu" aria-busy="true" class="pa-3" rounded="md">
-                    <v-list-item
-                      density="compact"
-                      rounded="md"
-                      color="secondary"
-                      v-for="(item, index) in menulist"
-                      :key="index"
-                      :value="index"
-                    >
-                      <v-list-item-title class="text-h6 text-lightText">{{ item }}</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
-              </template>
-            </v-list-item>
-          </v-list>
-          <v-sheet class="pa-6 pb-3 mt-1" color="containerBg" rounded="lg">
-            <v-row class="widget-grid">
-              <v-col cols="7">
-                <apexchart type="bar" height="50" :options="chartOptions4" :series="barChart4.series"> </apexchart>
-              </v-col>
-              <v-col cols="5">
-                <h5 class="text-h5">$300</h5>
-                <p class="text-body-1 text-error mb-0">
-                  <SvgSprite name="custom-fall-outline" style="width: 16px; height: 16px; transform: rotate(130deg)" />
-                  30.6%
-                </p>
-              </v-col>
-            </v-row>
-          </v-sheet>
-        </v-card-text>
-      </v-card>
-    </v-col>
+    <template v-else>
+      <v-col v-for="(card, index) in cards" :key="index" cols="12" sm="6" lg="3">
+        <v-card variant="outlined" elevation="0" class="bg-surface hr-stat-card" rounded="lg">
+          <v-card-text>
+            <v-list class="pt-0" aria-label="hr stat content">
+              <v-list-item class="pa-0">
+                <template v-slot:prepend>
+                  <v-avatar rounded="md" :style="{ backgroundColor: `${card.color}1A`, color: card.color }">
+                    <v-icon :icon="card.icon" />
+                  </v-avatar>
+                </template>
+                <h6 class="text-subtitle-1 mb-0">{{ card.title }}</h6>
+              </v-list-item>
+            </v-list>
+            <v-sheet class="pa-6 pb-3 mt-1" color="containerBg" rounded="lg">
+              <v-row class="widget-grid align-center">
+                <v-col cols="7">
+                  <apexchart type="bar" height="50" :options="chartOptions(card.color)" :series="[{ name: card.title, data: card.series }]" />
+                </v-col>
+                <v-col cols="5">
+                  <h5 class="text-h5">{{ card.value }}</h5>
+                  <p class="text-body-1 mb-0 d-flex align-center" :class="card.chipClass">
+                    <v-icon v-if="card.changeIcon" :icon="card.changeIcon" size="16" class="me-1" />
+                    {{ card.changeText }}
+                  </p>
+                </v-col>
+              </v-row>
+            </v-sheet>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </template>
   </v-row>
 </template>
+
 <style lang="scss">
 .widget-grid {
   > div {
@@ -418,5 +191,9 @@ const barChart4 = {
       text-align: center;
     }
   }
+}
+
+.hr-stat-card {
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
 }
 </style>
