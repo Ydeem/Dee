@@ -23,5 +23,9 @@ class DatabaseSeeder extends Seeder
         );
 
         $this->call(EmployeesModuleSeeder::class);
+        $this->call(DepartmentSeeder::class);
+        $this->call(DesignationSeeder::class);
+        $this->call(AttendanceSeeder::class);
+        $this->call(LeaveSeeder::class);
     }
 }

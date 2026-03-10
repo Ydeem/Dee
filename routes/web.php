@@ -41,6 +41,10 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/hr/dashboard', fn () => Inertia::render('HR/Dashboard/Index'))->name('hr.dashboard');
     Route::get('/hr/employees', fn () => Inertia::render('HR/Employees/Index'))->name('hr.employees.index');
+    Route::get('/hr/departments', fn () => Inertia::render('HR/Departments/Index'))->name('hr.departments.index');
+    Route::get('/hr/designations', fn () => Inertia::render('HR/Designations/Index'))->name('hr.designations.index');
+    Route::get('/hr/attendance', fn () => Inertia::render('HR/Attendance/Index'))->name('hr.attendance.index');
+    Route::get('/hr/leave-management', fn () => Inertia::render('HR/Leave/Index'))->name('hr.leave.index');
     Route::get('/hr/employees/create', fn () => Inertia::render('HR/Employees/Create'))->name('hr.employees.create');
     Route::get('/hr/employees/{id}/edit', fn ($id) => Inertia::render('HR/Employees/Edit', ['id' => (int) $id]))->name('hr.employees.edit');
     Route::get('/hr/employees/{id}', fn ($id) => Inertia::render('HR/Employees/Show', ['id' => (int) $id]))->name('hr.employees.show');

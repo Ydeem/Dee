@@ -25,6 +25,26 @@ const hrRoutes = [
     path: '/hr/employees/:id',
     name: 'hr.employees.show',
     component: () => import('@/Pages/HR/Employees/Show.vue')
+  },
+  {
+    path: '/hr/departments',
+    name: 'hr.departments',
+    component: () => import('@/views/hr/departments/DepartmentsPage.vue')
+  },
+  {
+    path: '/hr/designations',
+    name: 'hr.designations',
+    component: () => import('@/views/hr/designations/DesignationsPage.vue')
+  },
+  {
+    path: '/hr/attendance',
+    name: 'hr.attendance',
+    component: () => import('@/views/hr/attendance/AttendancePage.vue')
+  },
+  {
+    path: '/hr/leave-management',
+    name: 'hr.leave-management',
+    component: () => import('@/views/hr/leave/LeaveManagementPage.vue')
   }
 ]
 
