@@ -42,4 +42,14 @@ class Employee extends Model
     {
         return $this->hasMany(\App\Models\HR\ShiftSchedule::class, 'employee_id');
     }
+
+    public function salaryStructure()
+    {
+        return $this->hasOne(\App\Models\HR\SalaryStructure::class, 'employee_id');
+    }
+
+    public function payslips()
+    {
+        return $this->hasMany(\App\Models\HR\Payslip::class, 'employee_id');
+    }
 }

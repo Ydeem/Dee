@@ -65,6 +65,16 @@ const hrRoutes = [
     path: '/hr/onboarding',
     name: 'hr.onboarding',
     component: () => import('@/views/hr/recruitment/OnboardingPage.vue')
+  },
+  {
+    path: '/hr/payroll',
+    name: 'hr.payroll',
+    component: () => import('@/views/hr/payroll/PayrollPage.vue')
+  },
+  {
+    path: '/hr/payroll/:id/payslip',
+    name: 'hr.payroll.payslip',
+    component: () => import('@/views/hr/payroll/PayslipPage.vue')
   }
 ]
 

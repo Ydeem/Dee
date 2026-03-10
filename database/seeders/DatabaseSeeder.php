@@ -31,5 +31,6 @@ class DatabaseSeeder extends Seeder
         $this->call(JobOpeningSeeder::class);
         $this->call(ApplicantSeeder::class);
         $this->call(OnboardingSeeder::class);
+        $this->call(PayrollSeeder::class);
     }
 }

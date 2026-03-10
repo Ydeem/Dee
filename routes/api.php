@@ -13,6 +13,9 @@ use App\Http\Controllers\HR\OnboardingTemplateController;
 use App\Http\Controllers\HR\ApplicantController;
 use App\Http\Controllers\HR\ShiftController;
 use App\Http\Controllers\HR\ShiftScheduleController;
+use App\Http\Controllers\HR\PayrollController;
+use App\Http\Controllers\HR\PayslipController;
+use App\Http\Controllers\HR\SalaryStructureController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->prefix('hr')->group(function () {
@@ -123,4 +126,24 @@ Route::middleware('auth:sanctum')->prefix('hr')->group(function () {
     Route::post('/onboarding-templates/{id}/tasks', [OnboardingTemplateController::class, 'addTask']);
     Route::put('/onboarding-templates/{id}/tasks/{taskId}', [OnboardingTemplateController::class, 'updateTask']);
     Route::delete('/onboarding-templates/{id}/tasks/{taskId}', [OnboardingTemplateController::class, 'deleteTask']);
+
+    // Payroll Runs
+    Route::get('/payroll', [PayrollController::class, 'index']);
+    Route::post('/payroll', [PayrollController::class, 'store']);
+    Route::get('/payroll/{id}', [PayrollController::class, 'show']);
+    Route::post('/payroll/{id}/process', [PayrollController::class, 'process']);
+    Route::patch('/payroll/{id}/approve', [PayrollController::class, 'approve']);
+    Route::patch('/payroll/{id}/mark-paid', [PayrollController::class, 'markPaid']);
+    Route::patch('/payroll/{id}/cancel', [PayrollController::class, 'cancel']);
+    Route::delete('/payroll/{id}', [PayrollController::class, 'destroy']);
+
+    // Payslips
+    Route::get('/payslips', [PayslipController::class, 'index']);
+    Route::get('/payslips/{id}', [PayslipController::class, 'show']);
+    Route::put('/payslips/{id}', [PayslipController::class, 'update']);
+
+    // Salary Structures
+    Route::get('/salary-structures', [SalaryStructureController::class, 'index']);
+    Route::post('/salary-structures', [SalaryStructureController::class, 'store']);
+    Route::put('/salary-structures/{id}', [SalaryStructureController::class, 'update']);
 });
