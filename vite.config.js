@@ -35,6 +35,14 @@ export default defineConfig({
         },
     },
     server: {
+        host: true,
+        port: 5173,
+        strictPort: true,
+        hmr: {
+            host: '127.0.0.1',
+            protocol: 'ws',
+            port: 5173,
+        },
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },

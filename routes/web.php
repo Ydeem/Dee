@@ -38,6 +38,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/utils/typography', fn () => Inertia::render('Utils/Typography'))->name('utils.typography');
     Route::get('/utils/colors', fn () => Inertia::render('Utils/Colors'))->name('utils.colors');
     Route::get('/utils/shadows', fn () => Inertia::render('Utils/Shadows'))->name('utils.shadows');
+
+    Route::get('/hr/dashboard', fn () => Inertia::render('HR/Dashboard/Index'))->name('hr.dashboard');
+    Route::get('/hr/employees', fn () => Inertia::render('HR/Employees/Index'))->name('hr.employees.index');
+    Route::get('/hr/employees/create', fn () => Inertia::render('HR/Employees/Create'))->name('hr.employees.create');
+    Route::get('/hr/employees/{id}/edit', fn ($id) => Inertia::render('HR/Employees/Edit', ['id' => (int) $id]))->name('hr.employees.edit');
+    Route::get('/hr/employees/{id}', fn ($id) => Inertia::render('HR/Employees/Show', ['id' => (int) $id]))->name('hr.employees.show');
 });
 
 /*
