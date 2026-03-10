@@ -45,6 +45,26 @@ const hrRoutes = [
     path: '/hr/leave-management',
     name: 'hr.leave-management',
     component: () => import('@/views/hr/leave/LeaveManagementPage.vue')
+  },
+  {
+    path: '/hr/shifts',
+    name: 'hr.shifts',
+    component: () => import('@/views/hr/shifts/ShiftsPage.vue')
+  },
+  {
+    path: '/hr/job-openings',
+    name: 'hr.job-openings',
+    component: () => import('@/views/hr/recruitment/JobOpeningsPage.vue')
+  },
+  {
+    path: '/hr/applicants',
+    name: 'hr.applicants',
+    component: () => import('@/views/hr/recruitment/ApplicantsPage.vue')
+  },
+  {
+    path: '/hr/onboarding',
+    name: 'hr.onboarding',
+    component: () => import('@/views/hr/recruitment/OnboardingPage.vue')
   }
 ]
 

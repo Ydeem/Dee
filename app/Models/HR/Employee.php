@@ -32,4 +32,14 @@ class Employee extends Model
     {
         return $this->hasMany(\App\Models\HR\LeaveRequest::class, 'employee_id');
     }
+
+    public function shift()
+    {
+        return $this->belongsTo(\App\Models\HR\Shift::class, 'shift_id');
+    }
+
+    public function schedules()
+    {
+        return $this->hasMany(\App\Models\HR\ShiftSchedule::class, 'employee_id');
+    }
 }

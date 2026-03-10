@@ -1,4 +1,4 @@
-export interface menu {
+﻿export interface menu {
   header?: string;
   title?: string;
   icon?: string;
@@ -52,7 +52,7 @@ const sidebarItem: menu[] = [
   {
     title: 'Shifts & Schedules',
     icon: 'custom-clock-outline',
-    to: '/hr/shifts-schedules'
+    to: '/hr/shifts'
   },
   { header: 'RECRUITMENT' },
   {
