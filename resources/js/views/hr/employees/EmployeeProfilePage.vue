@@ -21,6 +21,10 @@ const leaveData = ref<any>({ balances: [], history: [] });
 const payrollData = ref<any>({ salary: { basic_salary: 0, allowances: [], deductions: 0, net_pay: 0 }, history: [] });
 const documents = ref<any[]>([]);
 const activityLog = ref<any[]>([]);
+const profileAvatarFailed = ref(false);
+const avatarUploading = ref(false);
+const avatarRemoving = ref(false);
+const avatarInputRef = ref<HTMLInputElement | null>(null);
 
 const editableSkills = ref<string[]>([]);
 const newSkill = ref('');
@@ -73,6 +77,75 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function hasProfileAvatar() {
+  return Boolean(employee.value?.avatar_url) && !profileAvatarFailed.value;
+}
+
+function onProfileAvatarError() {
+  profileAvatarFailed.value = true;
+}
+
+function triggerAvatarPicker() {
+  avatarInputRef.value?.click();
+}
+
+async function onAvatarFileSelected(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+
+  if (!file) {
+    return;
+  }
+
+  avatarUploading.value = true;
+
+  try {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const { data } = await axios.post(`/api/hr/employees/${props.employeeId}/avatar`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    if (employee.value) {
+      employee.value.avatar_url = data?.avatar_url ?? null;
+    }
+
+    profileAvatarFailed.value = false;
+    snackbar.value = { show: true, message: data?.message ?? 'Profile photo updated.', color: 'success' };
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to upload photo.',
+      color: 'error'
+    };
+  } finally {
+    avatarUploading.value = false;
+    target.value = '';
+  }
+}
+
+async function removeAvatar() {
+  avatarRemoving.value = true;
+
+  try {
+    const { data } = await axios.delete(`/api/hr/employees/${props.employeeId}/avatar`);
+    if (employee.value) {
+      employee.value.avatar_url = null;
+    }
+    profileAvatarFailed.value = false;
+    snackbar.value = { show: true, message: data?.message ?? 'Profile photo removed.', color: 'success' };
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to remove photo.',
+      color: 'error'
+    };
+  } finally {
+    avatarRemoving.value = false;
+  }
+}
+
 function openConfirm(title: string, message: string, action: string, payload: any = null) {
   confirmDialog.value = { show: true, title, message, action, payload };
 }
@@ -82,6 +155,7 @@ async function fetchProfile() {
   try {
     const { data } = await axios.get(`/api/hr/employees/${props.employeeId}`);
     employee.value = data.employee;
+    profileAvatarFailed.value = false;
     editableSkills.value = data.employee?.skills ?? [];
     notes.value = data.employee?.notes ?? '';
     bio.value = data.employee?.bio ?? '';
@@ -249,10 +323,55 @@ onMounted(async () => {
   <v-card v-else class="bg-surface hr-card-shadow rounded-lg mb-4" variant="outlined" elevation="0">
     <v-card-text class="d-flex justify-space-between align-center flex-wrap ga-4">
       <div class="d-flex align-center ga-4">
-        <v-avatar size="84" color="primary" variant="tonal">
-          <img v-if="employee?.avatar_url" :src="employee.avatar_url" :alt="employee.full_name" />
-          <span v-else class="text-h6 font-weight-bold">{{ initials(employee?.full_name || '') }}</span>
-        </v-avatar>
+        <v-menu location="bottom start" offset="8">
+          <template #activator="{ props }">
+            <div class="avatar-action-wrap" v-bind="props">
+              <v-avatar size="84" color="primary" variant="tonal" class="cursor-pointer">
+                <img
+                  v-if="hasProfileAvatar()"
+                  :src="employee?.avatar_url || ''"
+                  :alt="employee?.full_name || 'Employee Avatar'"
+                  @error="onProfileAvatarError"
+                />
+                <span v-else class="text-h6 font-weight-bold">{{ initials(employee?.full_name || '') }}</span>
+              </v-avatar>
+              <v-btn
+                class="avatar-edit-btn"
+                icon
+                size="small"
+                color="surface"
+                variant="elevated"
+                :loading="avatarUploading || avatarRemoving"
+              >
+                <img src="/assets/images/icons/pencil-edit.svg" alt="Edit photo" class="pencil-icon-img" />
+              </v-btn>
+            </div>
+          </template>
+
+          <v-list density="compact" min-width="220">
+            <v-list-item
+              :title="employee?.avatar_url ? 'Change photo' : 'Upload photo'"
+              prepend-icon="mdi-image-plus"
+              :disabled="avatarUploading || avatarRemoving"
+              @click="triggerAvatarPicker"
+            />
+            <v-list-item
+              v-if="employee?.avatar_url"
+              title="Remove photo"
+              prepend-icon="mdi-delete-outline"
+              base-color="error"
+              :disabled="avatarUploading || avatarRemoving"
+              @click="removeAvatar"
+            />
+          </v-list>
+        </v-menu>
+        <input
+          ref="avatarInputRef"
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          class="d-none"
+          @change="onAvatarFileSelected"
+        />
         <div>
           <h2 class="text-h3 mb-1">{{ employee?.full_name }}</h2>
           <p class="text-subtitle-1 text-lightText mb-2">{{ employee?.designation?.name ?? 'Not assigned' }}</p>
@@ -264,7 +383,18 @@ onMounted(async () => {
       </div>
 
       <div class="d-flex ga-2 flex-wrap">
-        <v-btn color="primary" prepend-icon="mdi-account-edit-outline" @click="router.visit(appUrl(`/hr/employees/${props.employeeId}/edit`))">Edit Employee</v-btn>
+        <v-btn
+          class="header-edit-btn"
+          icon
+          color="surface"
+          size="large"
+          variant="elevated"
+          title="Edit Employee"
+          aria-label="Edit Employee"
+          @click="router.visit(appUrl(`/hr/employees/${props.employeeId}/edit`))"
+        >
+          <img src="/assets/images/icons/pencil-edit.svg" alt="Edit employee" class="pencil-icon-img" />
+        </v-btn>
         <v-btn variant="outlined" prepend-icon="mdi-message-text-outline" @click="placeholderAction('Message')">Send Message</v-btn>
         <v-menu>
           <template #activator="{ props }">
@@ -574,5 +704,38 @@ onMounted(async () => {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+.avatar-action-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-edit-btn {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 34px !important;
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 50% !important;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #eef1f6 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+}
+
+.pencil-icon-img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  filter: none;
+}
+
+.header-edit-btn {
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: #eef1f6 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
 }
 </style>

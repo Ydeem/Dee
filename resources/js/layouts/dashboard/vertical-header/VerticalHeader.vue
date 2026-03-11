@@ -24,7 +24,7 @@ watch(priority, (newPriority) => {
 </script>
 
 <template>
-  <v-app-bar elevation="0" :priority="priority" height="74" class="px-sm-10 px-5">
+  <v-app-bar elevation="0" :priority="priority" height="74" class="px-sm-10 px-5 hr-top-bar">
     <v-btn
       class="hidden-md-and-down me-5 ms-0"
       color="secondary"
@@ -65,7 +65,7 @@ watch(priority, (newPriority) => {
     <!-- ---------------------------------------------- -->
     <!-- Search part -->
     <!-- ---------------------------------------------- -->
-    <v-sheet color="transparent" class="d-none d-lg-block" width="224">
+    <v-sheet color="transparent" class="d-none d-lg-block search-host" width="224">
       <Searchbar />
     </v-sheet>
 
@@ -122,6 +122,21 @@ watch(priority, (newPriority) => {
 </template>
 
 <style scoped>
+.hr-top-bar {
+  overflow: visible !important;
+  z-index: 5000 !important;
+}
+
+.search-host {
+  position: relative;
+  z-index: 5200;
+  overflow: visible !important;
+}
+
+:deep(.v-toolbar__content) {
+  overflow: visible !important;
+}
+
 .hamburger-icon {
   width: 22px;
   height: 22px;

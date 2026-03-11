@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import SvgSprite from '@/components/shared/SvgSprite.vue';
@@ -18,6 +18,8 @@ const searchResults = ref<SearchResult[]>([]);
 const searching = ref(false);
 const showResults = ref(false);
 const highlightedIndex = ref(-1);
+const searchWrapper = ref<HTMLElement | null>(null);
+const dropdownStyle = ref<Record<string, string>>({});
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -33,6 +35,36 @@ const groupedResults = computed(() => {
 });
 
 const flattenedResults = computed(() => searchResults.value);
+const shouldShowResults = computed(
+  () => showResults.value && (searchResults.value.length > 0 || (searchQuery.value.length >= 2 && !searching.value))
+);
+
+function updateDropdownPosition() {
+  if (!searchWrapper.value) return;
+  const rect = searchWrapper.value.getBoundingClientRect();
+  const viewportPadding = 12;
+
+  const width = Math.min(Math.round(rect.width), window.innerWidth - viewportPadding * 2);
+  const left = Math.min(
+    Math.max(Math.round(rect.left), viewportPadding),
+    Math.max(viewportPadding, window.innerWidth - width - viewportPadding)
+  );
+  const top = Math.round(rect.bottom + 6);
+  const maxHeight = Math.max(180, window.innerHeight - top - viewportPadding);
+
+  dropdownStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${width}px`,
+    maxHeight: `${maxHeight}px`
+  };
+}
+
+const syncDropdownOnViewportChange = () => {
+  if (shouldShowResults.value) {
+    updateDropdownPosition();
+  }
+};
 
 watch(searchQuery, (value) => {
   if (searchTimeout) {
@@ -64,10 +96,27 @@ watch(showResults, (visible) => {
   }
 });
 
+watch(
+  shouldShowResults,
+  async (visible) => {
+    if (!visible) return;
+    await nextTick();
+    updateDropdownPosition();
+  },
+  { flush: 'post' }
+);
+
+onMounted(() => {
+  window.addEventListener('resize', syncDropdownOnViewportChange);
+  window.addEventListener('scroll', syncDropdownOnViewportChange, true);
+});
+
 onBeforeUnmount(() => {
   if (searchTimeout) {
     clearTimeout(searchTimeout);
   }
+  window.removeEventListener('resize', syncDropdownOnViewportChange);
+  window.removeEventListener('scroll', syncDropdownOnViewportChange, true);
 });
 
 async function runSearch(query: string) {
@@ -137,7 +186,7 @@ function getResultIndex(result: SearchResult) {
 </script>
 
 <template>
-  <div class="search-wrapper">
+  <div ref="searchWrapper" class="search-wrapper">
     <v-text-field
       v-model="searchQuery"
       persistent-placeholder
@@ -162,12 +211,10 @@ function getResultIndex(result: SearchResult) {
       </template>
     </v-text-field>
 
-    <v-card
-      v-if="showResults && (searchResults.length > 0 || (searchQuery.length >= 2 && !searching))"
-      class="search-results"
-      elevation="8"
-      rounded="lg"
-    >
+  </div>
+
+  <teleport to="body">
+    <v-card v-if="shouldShowResults" class="search-results" :style="dropdownStyle" elevation="8" rounded="lg">
       <v-list density="compact">
         <template v-if="searchResults.length > 0">
           <template v-for="(group, type) in groupedResults" :key="type">
@@ -195,7 +242,7 @@ function getResultIndex(result: SearchResult) {
         </v-list-item>
       </v-list>
     </v-card>
-  </div>
+  </teleport>
 </template>
 
 <style scoped>
@@ -204,12 +251,13 @@ function getResultIndex(result: SearchResult) {
 }
 
 .search-results {
-  position: absolute;
-  top: 44px;
-  left: 0;
-  right: 0;
-  z-index: 9999;
+  position: fixed;
+  z-index: 99999 !important;
   max-height: 360px;
   overflow-y: auto;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(2px);
 }
 </style>

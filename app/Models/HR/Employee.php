@@ -5,6 +5,7 @@ namespace App\Models\HR;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Employee extends Model
 {
@@ -79,8 +80,6 @@ class Employee extends Model
         static::saving(function (self $employee) {
             if (! empty($employee->avatar)) {
                 $employee->profile_photo_path = $employee->avatar;
-            } elseif (! empty($employee->profile_photo_path)) {
-                $employee->avatar = $employee->profile_photo_path;
             }
         });
     }
@@ -94,7 +93,29 @@ class Employee extends Model
     {
         $path = $this->avatar ?: $this->profile_photo_path;
 
-        return $path ? asset('storage/' . $path) : null;
+        if (! $path) {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', trim((string) $path));
+
+        if (Str::startsWith($normalized, ['http://', 'https://', '//'])) {
+            return $normalized;
+        }
+
+        if (Str::startsWith($normalized, '/storage/')) {
+            return asset(ltrim($normalized, '/'));
+        }
+
+        if (Str::startsWith($normalized, 'storage/')) {
+            return asset($normalized);
+        }
+
+        if (Str::startsWith($normalized, 'public/')) {
+            $normalized = Str::after($normalized, 'public/');
+        }
+
+        return asset('storage/' . ltrim($normalized, '/'));
     }
 
     public function getInitialsAttribute(): string

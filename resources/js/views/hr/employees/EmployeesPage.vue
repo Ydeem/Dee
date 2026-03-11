@@ -72,6 +72,7 @@ const confirmDialog = ref({
 });
 
 const snackbar = ref({ show: false, message: '', color: 'success' });
+const avatarLoadFailures = ref<number[]>([]);
 
 const perPageOptions = [10, 25, 50];
 const employmentTypes = [
@@ -121,6 +122,16 @@ function getInitials(employee: EmployeeItem) {
     .toUpperCase();
 }
 
+function hasDisplayAvatar(employee: EmployeeItem) {
+  return Boolean(employee.avatar_url) && !avatarLoadFailures.value.includes(employee.id);
+}
+
+function onAvatarLoadError(employee: EmployeeItem) {
+  if (!avatarLoadFailures.value.includes(employee.id)) {
+    avatarLoadFailures.value.push(employee.id);
+  }
+}
+
 function rowData(item: any): EmployeeItem {
   return (item?.raw ?? item) as EmployeeItem;
 }
@@ -155,6 +166,7 @@ async function fetchOptions() {
 
 async function fetchEmployees() {
   loading.value = true;
+  avatarLoadFailures.value = [];
   try {
     const { data } = await axios.get('/api/hr/employees', {
       params: {
@@ -567,7 +579,12 @@ onMounted(async () => {
           <template #item.full_name="{ item }">
             <div class="d-flex align-center ga-3 cursor-pointer" @click="viewProfile(rowData(item))">
               <v-avatar color="primary" variant="tonal" size="36">
-                <img v-if="rowData(item).avatar_url" :src="rowData(item).avatar_url || ''" :alt="rowData(item).full_name" />
+                <img
+                  v-if="hasDisplayAvatar(rowData(item))"
+                  :src="rowData(item).avatar_url || ''"
+                  :alt="rowData(item).full_name"
+                  @error="onAvatarLoadError(rowData(item))"
+                />
                 <span v-else class="text-caption font-weight-bold">{{ getInitials(rowData(item)) }}</span>
               </v-avatar>
               <div>
@@ -607,7 +624,12 @@ onMounted(async () => {
               <v-card-text>
                 <div class="d-flex justify-space-between align-start">
                   <v-avatar color="primary" variant="tonal" size="54">
-                    <img v-if="employee.avatar_url" :src="employee.avatar_url" :alt="employee.full_name" />
+                    <img
+                      v-if="hasDisplayAvatar(employee)"
+                      :src="employee.avatar_url || ''"
+                      :alt="employee.full_name"
+                      @error="onAvatarLoadError(employee)"
+                    />
                     <span v-else class="font-weight-bold">{{ getInitials(employee) }}</span>
                   </v-avatar>
                   <v-chip :color="statusColor(employee.employment_status)" size="small" variant="tonal">{{ employee.employment_status }}</v-chip>

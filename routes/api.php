@@ -35,6 +35,8 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::put('/employees/{id}', [EmployeeController::class, 'update']);
         Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
         Route::patch('/employees/{id}/status', [EmployeeController::class, 'updateStatus']);
+        Route::post('/employees/{id}/avatar', [EmployeeController::class, 'updateAvatar']);
+        Route::delete('/employees/{id}/avatar', [EmployeeController::class, 'removeAvatar']);
         Route::get('/employees/{id}/attendance', [EmployeeController::class, 'attendance']);
         Route::get('/employees/{id}/leave', [EmployeeController::class, 'leave']);
         Route::get('/employees/{id}/payroll', [EmployeeController::class, 'payroll']);

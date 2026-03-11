@@ -190,6 +190,59 @@ class EmployeeController extends Controller
         ]);
     }
 
+    public function updateAvatar(Request $request, $id)
+    {
+        $employee = Employee::findOrFail($id);
+
+        $request->validate([
+            'avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        if ($employee->avatar) {
+            Storage::disk('public')->delete($employee->avatar);
+        }
+
+        $path = $request->file('avatar')->store('hr/avatars', 'public');
+        $employee->avatar = $path;
+
+        if (Schema::hasColumn('employees', 'profile_photo_path')) {
+            $employee->profile_photo_path = $path;
+        }
+
+        $employee->save();
+
+        $this->recordActivity($employee->id, optional($request->user())->name, 'Avatar Updated', 'Employee profile photo was updated.');
+
+        return response()->json([
+            'avatar_url' => $employee->fresh()->avatar_url,
+            'message' => 'Profile photo updated.',
+        ]);
+    }
+
+    public function removeAvatar(Request $request, $id)
+    {
+        $employee = Employee::findOrFail($id);
+
+        if ($employee->avatar) {
+            Storage::disk('public')->delete($employee->avatar);
+        }
+
+        $employee->avatar = null;
+
+        if (Schema::hasColumn('employees', 'profile_photo_path')) {
+            $employee->profile_photo_path = null;
+        }
+
+        $employee->save();
+
+        $this->recordActivity($employee->id, optional($request->user())->name, 'Avatar Removed', 'Employee profile photo was removed.');
+
+        return response()->json([
+            'avatar_url' => null,
+            'message' => 'Profile photo removed.',
+        ]);
+    }
+
     public function updateStatus(Request $request, $id)
     {
         $employee = Employee::findOrFail($id);
