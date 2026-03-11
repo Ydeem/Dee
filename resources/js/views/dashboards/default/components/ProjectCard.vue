@@ -1,99 +1,75 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
+import { router } from '@inertiajs/vue3';
 import CardHeader from '@/components/shared/CardHeader.vue';
 
 type PendingAction = {
-  title: string;
-  subtitle: string;
-  status: 'Pending' | 'In Progress' | 'Done' | string;
-};
+  type: string
+  title: string
+  subtitle: string
+  status: string
+  color: string
+  id: number
+  link: string
+}
 
 type PendingActionsResponse = {
-  completed_tasks?: number;
-  total_tasks?: number;
-  tasks_completed?: number;
-  tasks_total?: number;
-  actions?: PendingAction[];
-  items?: PendingAction[];
-};
+  actions?: PendingAction[]
+  total?: number
+  completed?: number
+  percent?: number
+}
 
 const isLoading = ref(true);
 const showRequestDialog = ref(false);
-const requestType = ref<string | null>(null);
+const actions = ref<PendingAction[]>([]);
+const taskTotal = ref(0);
+const taskCompleted = ref(0);
+const taskPercent = ref(0);
 
-const actions = ref<PendingAction[]>([
-  {
-    title: 'Leave Request',
-    subtitle: 'John Mensah - Mar 11-13',
-    status: 'Pending'
-  },
-  {
-    title: 'Onboarding',
-    subtitle: 'New Hire: Sarah Oti - Starts Mar 15',
-    status: 'In Progress'
-  },
-  {
-    title: 'Performance Review',
-    subtitle: 'Engineering Dept - Due Mar 20',
-    status: 'In Progress'
-  },
-  {
-    title: 'Payroll Approval',
-    subtitle: 'March 2026 Payroll - Approved',
-    status: 'Done'
-  },
-  {
-    title: 'Exit Interview',
-    subtitle: 'Emmanuel Doe - Mar 12',
-    status: 'Pending'
-  }
-]);
+const requestOptions = [
+  { title: 'Leave Request', route: '/hr/leave-management' },
+  { title: 'Onboarding', route: '/hr/onboarding' },
+  { title: 'Payroll', route: '/hr/payroll' },
+  { title: 'Expense', route: '/hr/expenses' }
+];
 
-const completedTasks = ref(4);
-const totalTasks = ref(9);
+const completionPercent = computed(() => taskPercent.value || (taskTotal.value ? Math.round((taskCompleted.value / taskTotal.value) * 100) : 0));
 
-const requestTypes = ['Leave', 'Onboarding', 'Performance Review', 'Payroll', 'Other'];
-
-const completionPercent = computed(() => {
-  if (!totalTasks.value) return 0;
-  return Math.round((completedTasks.value / totalTasks.value) * 100);
-});
-
-function statusColor(status: string) {
+function statusColor(status: string, color?: string) {
+  if (color) return color;
   if (status === 'Done') return 'success';
   if (status === 'In Progress') return 'primary';
   return 'warning';
 }
 
-async function loadPendingActions() {
+async function fetchPendingActions() {
   isLoading.value = true;
+
   try {
     const { data } = await axios.get<PendingActionsResponse>('/api/hr/dashboard/pending-actions');
-    completedTasks.value = Number(data?.completed_tasks ?? data?.tasks_completed ?? completedTasks.value);
-    totalTasks.value = Number(data?.total_tasks ?? data?.tasks_total ?? totalTasks.value);
-
-    const responseActions = (Array.isArray(data?.actions) ? data.actions : data?.items) ?? [];
-    if (Array.isArray(responseActions) && responseActions.length) {
-      actions.value = responseActions.map((item) => ({
-        title: item.title,
-        subtitle: item.subtitle,
-        status: item.status
-      }));
-    }
+    actions.value = data?.actions ?? [];
+    taskTotal.value = Number(data?.total ?? 0);
+    taskCompleted.value = Number(data?.completed ?? 0);
+    taskPercent.value = Number(data?.percent ?? 0);
   } catch (error) {
-    completedTasks.value = 4;
-    totalTasks.value = 9;
+    console.error('Actions fetch failed', error);
+    actions.value = [];
+    taskTotal.value = 0;
+    taskCompleted.value = 0;
+    taskPercent.value = 0;
   } finally {
     isLoading.value = false;
   }
 }
 
-function submitRequest() {
+function openRequest(route: string) {
   showRequestDialog.value = false;
+  router.visit(route);
 }
 
-onMounted(loadPendingActions);
+onMounted(fetchPendingActions);
 </script>
 
 <template>
@@ -102,25 +78,37 @@ onMounted(loadPendingActions);
   <CardHeader v-else title="HR Tasks & Approvals" class="overflow-hidden hr-card-shadow">
     <div class="pa-6">
       <div class="d-flex justify-space-between mb-2">
-        <p class="text-body-1 mb-0">{{ completedTasks }} of {{ totalTasks }} tasks completed today</p>
+        <p class="text-body-1 mb-0">{{ taskCompleted }} of {{ taskTotal }} tasks completed today</p>
         <p class="text-body-1 mb-0">{{ completionPercent }}%</p>
       </div>
       <v-progress-linear aria-label="progressbar" rounded color="primary" :model-value="completionPercent" height="6" />
 
       <v-list class="py-5" aria-label="pending hr actions">
-        <v-list-item v-for="(item, index) in actions" :key="index" :value="index" rounded="md" class="px-0">
-          <template v-slot:prepend>
-            <v-avatar size="10" :color="statusColor(item.status)" />
-          </template>
-          <v-list-item-title class="text-body-1 font-weight-bold">{{ item.title }}</v-list-item-title>
-          <v-list-item-subtitle class="text-caption text-lightText mt-1">{{ item.subtitle }}</v-list-item-subtitle>
-          <template v-slot:append>
-            <v-chip :color="statusColor(item.status)" variant="tonal" size="small" rounded="md">{{ item.status }}</v-chip>
-          </template>
+        <template v-if="actions.length">
+          <v-list-item
+            v-for="action in actions"
+            :key="`${action.type}-${action.id}`"
+            rounded="md"
+            class="px-0 cursor-pointer"
+            @click="router.visit(action.link)"
+          >
+            <template #prepend>
+              <v-avatar size="10" :color="statusColor(action.status, action.color)" />
+            </template>
+            <v-list-item-title class="text-body-1 font-weight-bold">{{ action.title }}</v-list-item-title>
+            <v-list-item-subtitle class="text-caption text-lightText mt-1">{{ action.subtitle }}</v-list-item-subtitle>
+            <template #append>
+              <v-chip :color="statusColor(action.status, action.color)" variant="tonal" size="small" rounded="md">{{ action.status }}</v-chip>
+            </template>
+          </v-list-item>
+        </template>
+
+        <v-list-item v-else>
+          <v-list-item-title class="text-lightText">No pending HR actions.</v-list-item-title>
         </v-list-item>
       </v-list>
 
-      <v-btn color="primary" variant="flat" rounded="md" block @click="showRequestDialog = true"> + New Request </v-btn>
+      <v-btn color="primary" variant="flat" rounded="md" block @click="showRequestDialog = true">+ New Request</v-btn>
     </div>
   </CardHeader>
 
@@ -128,12 +116,21 @@ onMounted(loadPendingActions);
     <v-card rounded="lg">
       <v-card-title class="text-h5">Create Request</v-card-title>
       <v-card-text>
-        <v-select v-model="requestType" label="Request type" :items="requestTypes" variant="outlined" hide-details />
+        <v-list density="comfortable">
+          <v-list-item
+            v-for="option in requestOptions"
+            :key="option.route"
+            rounded="md"
+            class="cursor-pointer"
+            @click="openRequest(option.route)"
+          >
+            <v-list-item-title>{{ option.title }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
       </v-card-text>
       <v-card-actions class="px-6 pb-5">
         <v-spacer />
-        <v-btn variant="text" @click="showRequestDialog = false">Cancel</v-btn>
-        <v-btn color="primary" variant="flat" :disabled="!requestType" @click="submitRequest">Continue</v-btn>
+        <v-btn variant="text" @click="showRequestDialog = false">Close</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -142,5 +139,9 @@ onMounted(loadPendingActions);
 <style lang="scss">
 .hr-card-shadow {
   box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+
+.cursor-pointer {
+  cursor: pointer;
 }
 </style>

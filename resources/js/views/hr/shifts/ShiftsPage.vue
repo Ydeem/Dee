@@ -1,479 +1,667 @@
-﻿<script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import axios from 'axios';
-import { router } from '@inertiajs/vue3';
-import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import axios from 'axios'
+import { router } from '@inertiajs/vue3'
+import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue'
 
-interface Shift {
-  id: number;
-  name: string;
-  start_time: string;
-  end_time: string;
-  break_duration: number | null;
-  working_days: string[];
-  color: string | null;
-  status: string;
-  employees_count: number;
+interface EmployeeOption {
+  id: number
+  name: string
 }
 
-interface ShiftSchedule {
-  id: number;
-  effective_from: string;
-  effective_to: string | null;
-  note: string | null;
+interface ShiftOption {
+  id: number
+  name: string
+  color: string
+  schedule_label: string
+  working_days: string[]
+  break_duration?: number
+  duration_hours?: number
+  description?: string | null
+  status?: string
+  assigned_count?: number
+  start_time?: string | null
+  end_time?: string | null
+}
+
+interface ScheduleRow {
+  id: number
+  effective_from: string
+  effective_from_raw: string
+  effective_to: string
+  effective_to_raw: string | null
+  status: string
+  note: string | null
   employee: {
-    id: number;
-    full_name: string;
-    employee_id: string;
-    avatar_url: string | null;
-    department?: { name: string } | null;
-  };
+    id: number
+    name: string
+    employee_id: string
+    avatar: string | null
+    initials: string
+    department: string
+  } | null
   shift: {
-    id: number;
-    name: string;
-    start_time: string;
-    end_time: string;
-    color: string | null;
-  };
+    id: number
+    name: string
+    color: string
+    schedule_label: string
+    working_days: string[]
+  } | null
 }
 
-interface Summary {
-  total_shifts: number;
-  assigned_employees: number;
-  unassigned_employees: number;
+interface WeeklyDay {
+  date: string
+  label: string
+  date_label: string
+  is_today: boolean
+  is_weekend: boolean
+}
+
+interface WeeklyRow {
+  employee: {
+    id: number
+    name: string
+    emp_id: string
+    initials: string
+    dept: string | null
+  }
+  days: Array<{
+    date: string
+    day_name: string
+    has_shift: boolean
+    shift: null | {
+      name: string
+      color: string
+      time: string
+    }
+    is_weekend: boolean
+  }>
 }
 
 const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Shifts & Schedules', disabled: true, href: '#' }
-];
+]
 
-const loading = ref(false);
-const tab = ref('list');
-const shifts = ref<Shift[]>([]);
-const schedules = ref<ShiftSchedule[]>([]);
-const departments = ref<string[]>([]);
-const employees = ref<any[]>([]);
-const summary = ref<Summary>({ total_shifts: 0, assigned_employees: 0, unassigned_employees: 0 });
+const dayOptions = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-const pagination = reactive({ page: 1, perPage: 10, total: 0 });
-const filters = reactive({ search: '', shift_id: '', department: '', active_only: true });
+const loading = ref(false)
+const weeklyLoading = ref(false)
+const tab = ref('list')
 
-const drawerOpen = ref(false);
-const scheduleId = ref<number | null>(null);
-const form = reactive({
+const schedules = ref<ScheduleRow[]>([])
+const shiftOptions = ref<ShiftOption[]>([])
+const allShifts = ref<ShiftOption[]>([])
+const deptOptions = ref<string[]>([])
+const employeeList = ref<EmployeeOption[]>([])
+
+const stats = ref({
+  active_shifts: 0,
+  assigned: 0,
+  unassigned: 0,
+})
+
+const pagination = reactive({
+  page: 1,
+  perPage: 10,
+  total: 0,
+})
+
+const filters = reactive({
+  search: '',
+  shiftId: null as number | null,
+  department: null as string | null,
+  activeOnly: true,
+})
+
+const assignDialog = ref(false)
+const assignSaving = ref(false)
+const assignErrors = ref<Record<string, string[]>>({})
+const assignForm = reactive({
   employee_id: null as number | null,
   shift_id: null as number | null,
-  effective_from: new Date().toISOString().slice(0, 10),
-  effective_to: '',
-  note: ''
-});
+  effective_from: new Date().toISOString().split('T')[0],
+  effective_to: null as string | null,
+  note: '',
+})
 
-const bulkDialog = ref(false);
-const bulkSaving = ref(false);
+const bulkDialog = ref(false)
+const bulkSaving = ref(false)
 const bulkForm = reactive({
-  employee_ids: [] as number[],
-  shift_id: null as number | null,
-  effective_from: new Date().toISOString().slice(0, 10),
-  note: ''
-});
+  selectedIds: [] as number[],
+  shiftId: null as number | null,
+  effectiveFrom: new Date().toISOString().split('T')[0],
+  effectiveTo: null as string | null,
+})
 
-const manageDialog = ref(false);
-const shiftFormOpen = ref(false);
+const endDialog = ref(false)
+const endingItem = ref<ScheduleRow | null>(null)
+const endDate = ref(new Date().toISOString().split('T')[0])
+
+const confirmDeleteDialog = ref(false)
+const deletingItem = ref<ScheduleRow | null>(null)
+const deleteSaving = ref(false)
+
+const manageShiftsDialog = ref(false)
+const editingShift = ref<ShiftOption | null>(null)
+const shiftSaving = ref(false)
+const shiftErrors = ref<Record<string, string[]>>({})
 const shiftForm = reactive({
-  id: null as number | null,
   name: '',
   start_time: '08:00',
   end_time: '17:00',
-  break_duration: 60,
-  working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as string[],
   color: '#4f6ef7',
-  status: 'Active'
-});
+  working_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] as string[],
+  break_duration: 60,
+  description: '',
+  status: 'Active',
+})
 
-const confirmDialog = ref({ show: false, id: null as number | null, message: '' });
-const snackbar = ref({ show: false, message: '', color: 'success' });
+const weeklyGrid = ref<WeeklyRow[]>([])
+const weekDays = ref<WeeklyDay[]>([])
+const weekLabel = ref('')
+const weekStart = ref(new Date().toISOString().split('T')[0])
 
-const headers = [
-  { title: 'Employee', key: 'employee', sortable: false },
-  { title: 'Department', key: 'department', sortable: false },
-  { title: 'Shift', key: 'shift', sortable: false },
-  { title: 'Schedule', key: 'schedule', sortable: false },
-  { title: 'Effective From', key: 'effective_from', sortable: true },
-  { title: 'Effective To', key: 'effective_to', sortable: true },
-  { title: 'Actions', key: 'actions', sortable: false }
-];
+const snackbar = ref({
+  show: false,
+  message: '',
+  color: 'success',
+})
 
-const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const shiftFilterItems = computed(() => [
+  { title: 'All Shifts', value: null },
+  ...shiftOptions.value.map((shift) => ({
+    title: shift.name,
+    value: shift.id,
+  })),
+])
 
-const deptOptions = computed(() => [{ title: 'All Departments', value: '' }, ...departments.value.map((d) => ({ title: d, value: d }))]);
-const shiftFilterOptions = computed(() => [{ title: 'All Shifts', value: '' }, ...shifts.value.map((s) => ({ title: s.name, value: s.id }))]);
-const shiftOptions = computed(() => shifts.value.filter((s) => s.status === 'Active').map((s) => ({ title: `${s.name} (${s.start_time}-${s.end_time})`, value: s.id })));
-const employeeOptions = computed(() => employees.value.map((e: any) => ({ title: `${e.full_name} (${e.employee_id})`, value: e.id })));
+const departmentItems = computed(() => [
+  { title: 'All Departments', value: null },
+  ...deptOptions.value.map((department) => ({
+    title: department,
+    value: department,
+  })),
+])
 
-const netHours = computed(() => {
-  const [sh, sm] = shiftForm.start_time.split(':').map(Number);
-  const [eh, em] = shiftForm.end_time.split(':').map(Number);
-  if ([sh, sm, eh, em].some((v) => Number.isNaN(v))) return '0.0';
+const employeeItems = computed(() =>
+  employeeList.value.map((employee) => ({
+    title: employee.name,
+    value: employee.id,
+  })),
+)
 
-  let start = sh * 60 + sm;
-  let end = eh * 60 + em;
-  if (end <= start) end += 24 * 60;
+const shiftSelectItems = computed(() =>
+  shiftOptions.value.map((shift) => ({
+    ...shift,
+    title: shift.name,
+    value: shift.id,
+  })),
+)
 
-  const breakMinutes = Number(shiftForm.break_duration || 0);
-  const total = Math.max(0, end - start - breakMinutes);
-  return (total / 60).toFixed(1);
-});
-
-const dummyShifts: Shift[] = [
-  {
-    id: 1,
-    name: 'Morning Shift',
-    start_time: '08:00',
-    end_time: '17:00',
-    break_duration: 60,
-    working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    color: '#4f6ef7',
-    status: 'Active',
-    employees_count: 8
-  },
-  {
-    id: 2,
-    name: 'Night Shift',
-    start_time: '22:00',
-    end_time: '06:00',
-    break_duration: 30,
-    working_days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    color: '#9c27b0',
-    status: 'Active',
-    employees_count: 3
+const bulkButtonLabel = computed(() => {
+  if (bulkForm.selectedIds.length > 0) {
+    return `Assign to ${bulkForm.selectedIds.length} Employees`
   }
-];
 
-const dummyEmployees = [
-  { id: 1, full_name: 'Pontian Npontu', employee_id: 'EMP00001', avatar_url: null, department: { name: 'Human Resources' } },
-  { id: 2, full_name: 'Sarah Oti', employee_id: 'EMP00002', avatar_url: null, department: { name: 'Human Resources' } },
-  { id: 3, full_name: 'Daniel Kofi', employee_id: 'EMP00003', avatar_url: null, department: { name: 'Engineering' } }
-];
+  return 'Assign to All Active Employees'
+})
 
-const dummySchedules: ShiftSchedule[] = [
-  {
-    id: 1,
-    effective_from: '2026-01-01',
-    effective_to: null,
-    note: null,
-    employee: dummyEmployees[0],
-    shift: { id: 1, name: 'Morning Shift', start_time: '08:00', end_time: '17:00', color: '#4f6ef7' }
-  },
-  {
-    id: 2,
-    effective_from: '2026-02-01',
-    effective_to: null,
-    note: null,
-    employee: dummyEmployees[1],
-    shift: { id: 2, name: 'Night Shift', start_time: '22:00', end_time: '06:00', color: '#9c27b0' }
+const schedulePreview = computed(() => {
+  const start = shiftForm.start_time
+  const end = shiftForm.end_time
+
+  if (!start || !end) {
+    return 'N/A'
   }
-];
 
-function initials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0])
-    .join('')
-    .toUpperCase();
-}
+  return `${start} - ${end}`
+})
 
-function rowData(item: any): ShiftSchedule {
-  return (item?.raw ?? item) as ShiftSchedule;
-}
+const durationPreview = computed(() => {
+  const [sh, sm] = shiftForm.start_time.split(':').map(Number)
+  const [eh, em] = shiftForm.end_time.split(':').map(Number)
 
-function formatDate(d: string | null) {
-  return d ? new Date(d).toLocaleDateString() : 'Ongoing';
-}
-
-function applyDummy() {
-  shifts.value = dummyShifts;
-  schedules.value = dummySchedules;
-  employees.value = dummyEmployees;
-  departments.value = ['Human Resources', 'Engineering'];
-  pagination.total = dummySchedules.length;
-  summary.value = { total_shifts: 2, assigned_employees: 2, unassigned_employees: 1 };
-}
-
-async function fetchShifts() {
-  try {
-    const { data } = await axios.get('/api/hr/shifts');
-    shifts.value = data?.shifts?.length ? data.shifts : dummyShifts;
-  } catch {
-    shifts.value = dummyShifts;
+  if ([sh, sm, eh, em].some((value) => Number.isNaN(value))) {
+    return '0.0'
   }
-}
 
-async function fetchEmployees() {
-  try {
-    const { data } = await axios.get('/api/hr/employees', { params: { per_page: 200 } });
-    employees.value = data?.employees?.data?.length ? data.employees.data : dummyEmployees;
-  } catch {
-    employees.value = dummyEmployees;
+  let start = sh * 60 + sm
+  let end = eh * 60 + em
+
+  if (end <= start) {
+    end += 24 * 60
   }
-}
+
+  const total = Math.max(0, end - start - Number(shiftForm.break_duration || 0))
+  return (total / 60).toFixed(1)
+})
 
 async function fetchSchedules() {
-  loading.value = true;
+  loading.value = true
+
   try {
     const { data } = await axios.get('/api/hr/shift-schedules', {
       params: {
         search: filters.search || undefined,
-        shift_id: filters.shift_id || undefined,
+        shift_id: filters.shiftId || undefined,
         department: filters.department || undefined,
-        active_only: filters.active_only ? 1 : undefined,
+        active_only: filters.activeOnly ? 'true' : 'false',
         page: pagination.page,
-        per_page: pagination.perPage
-      }
-    });
+        per_page: pagination.perPage,
+      },
+    })
 
-    schedules.value = data?.schedules?.data ?? [];
-    pagination.total = data?.schedules?.total ?? 0;
-    summary.value = data?.summary ?? summary.value;
-    departments.value = data?.departments ?? departments.value;
-
-    if ((data?.shifts ?? []).length) {
-      shifts.value = data.shifts;
+    schedules.value = data.schedules?.data ?? []
+    pagination.total = data.schedules?.total ?? 0
+    stats.value = data.stats ?? stats.value
+    shiftOptions.value = data.shifts ?? []
+    deptOptions.value = data.departments ?? []
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to load schedules.',
+      color: 'error',
     }
-
-    if (!schedules.value.length) {
-      applyDummy();
-    }
-  } catch {
-    applyDummy();
-    snackbar.value = { show: true, message: 'Using dummy shifts data.', color: 'warning' };
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
-function openAssign() {
-  scheduleId.value = null;
-  form.employee_id = null;
-  form.shift_id = null;
-  form.effective_from = new Date().toISOString().slice(0, 10);
-  form.effective_to = '';
-  form.note = '';
-  drawerOpen.value = true;
+async function fetchEmployees() {
+  const { data } = await axios.get('/api/hr/employees', {
+    params: {
+      status: 'Active',
+      per_page: 1000,
+    },
+  })
+
+  employeeList.value = (data.employees?.data ?? []).map((employee: any) => ({
+    id: employee.id,
+    name: `${employee.full_name ?? `${employee.first_name} ${employee.last_name}`} (${employee.employee_id})`,
+  }))
 }
 
-function editSchedule(s: ShiftSchedule) {
-  scheduleId.value = s.id;
-  form.employee_id = s.employee.id;
-  form.shift_id = s.shift.id;
-  form.effective_from = s.effective_from;
-  form.effective_to = s.effective_to ?? '';
-  form.note = s.note ?? '';
-  drawerOpen.value = true;
+async function openAssignDialog(preselectedEmployee: ScheduleRow['employee'] | null = null) {
+  assignDialog.value = true
+  assignForm.employee_id = preselectedEmployee?.id ?? null
+  assignForm.shift_id = null
+  assignForm.effective_from = new Date().toISOString().split('T')[0]
+  assignForm.effective_to = null
+  assignForm.note = ''
+  assignErrors.value = {}
+
+  try {
+    await fetchEmployees()
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to load employees.',
+      color: 'error',
+    }
+  }
 }
 
-async function saveSchedule() {
-  if (!form.employee_id || !form.shift_id) return;
+async function saveAssignShift() {
+  assignSaving.value = true
 
   try {
     const payload = {
-      employee_id: form.employee_id,
-      shift_id: form.shift_id,
-      effective_from: form.effective_from,
-      effective_to: form.effective_to || null,
-      note: form.note || null
-    };
-
-    if (scheduleId.value) {
-      await axios.put(`/api/hr/shift-schedules/${scheduleId.value}`, payload);
-    } else {
-      await axios.post('/api/hr/shift-schedules', payload);
+      ...assignForm,
+      effective_to: assignForm.effective_to || undefined,
+      note: assignForm.note || undefined,
     }
 
-    drawerOpen.value = false;
-    snackbar.value = { show: true, message: 'Schedule saved.', color: 'success' };
-    await fetchSchedules();
-  } catch (e: any) {
-    snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Save failed.', color: 'error' };
-  }
-}
+    const { data } = await axios.post('/api/hr/shift-schedules/assign', payload)
 
-function askDelete(s: ShiftSchedule) {
-  confirmDialog.value = { show: true, id: s.id, message: `Remove ${s.employee.full_name} assignment?` };
-}
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    assignDialog.value = false
+    await fetchSchedules()
 
-async function removeSchedule() {
-  if (!confirmDialog.value.id) return;
+    if (tab.value === 'weekly') {
+      await fetchWeeklyView()
+    }
+  } catch (error: any) {
+    if (error?.response?.status === 422) {
+      assignErrors.value = error.response.data.errors ?? {}
+    }
 
-  try {
-    await axios.delete(`/api/hr/shift-schedules/${confirmDialog.value.id}`);
-    confirmDialog.value.show = false;
-    await fetchSchedules();
-  } catch {
-    snackbar.value = { show: true, message: 'Remove failed.', color: 'error' };
-  }
-}
-
-async function runBulkAssign() {
-  if (!bulkForm.employee_ids.length || !bulkForm.shift_id) return;
-
-  bulkSaving.value = true;
-  try {
-    const { data } = await axios.post('/api/hr/shift-schedules/bulk-assign', {
-      employee_ids: bulkForm.employee_ids,
-      shift_id: bulkForm.shift_id,
-      effective_from: bulkForm.effective_from,
-      note: bulkForm.note || null
-    });
-
-    bulkDialog.value = false;
-    snackbar.value = { show: true, message: data?.message ?? 'Bulk assign complete.', color: 'success' };
-    await fetchSchedules();
-  } catch (e: any) {
-    snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Bulk assign failed.', color: 'error' };
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to assign shift.',
+      color: 'error',
+    }
   } finally {
-    bulkSaving.value = false;
+    assignSaving.value = false
   }
 }
 
-function openShiftForm(item?: Shift) {
-  if (item) {
-    shiftForm.id = item.id;
-    shiftForm.name = item.name;
-    shiftForm.start_time = item.start_time;
-    shiftForm.end_time = item.end_time;
-    shiftForm.break_duration = item.break_duration ?? 0;
-    shiftForm.working_days = [...(item.working_days ?? [])];
-    shiftForm.color = item.color ?? '#4f6ef7';
-    shiftForm.status = item.status;
-  } else {
-    shiftForm.id = null;
-    shiftForm.name = '';
-    shiftForm.start_time = '08:00';
-    shiftForm.end_time = '17:00';
-    shiftForm.break_duration = 60;
-    shiftForm.working_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    shiftForm.color = '#4f6ef7';
-    shiftForm.status = 'Active';
+async function saveBulkAssign() {
+  bulkSaving.value = true
+
+  try {
+    if (employeeList.value.length === 0) {
+      await fetchEmployees()
+    }
+
+    const allIds = employeeList.value.map((employee) => employee.id)
+    const { data } = await axios.post('/api/hr/shift-schedules/bulk-assign', {
+      employee_ids: bulkForm.selectedIds.length > 0 ? bulkForm.selectedIds : allIds,
+      shift_id: bulkForm.shiftId,
+      effective_from: bulkForm.effectiveFrom,
+      effective_to: bulkForm.effectiveTo || undefined,
+    })
+
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    bulkDialog.value = false
+    bulkForm.selectedIds = []
+    bulkForm.shiftId = null
+    bulkForm.effectiveFrom = new Date().toISOString().split('T')[0]
+    bulkForm.effectiveTo = null
+
+    await fetchSchedules()
+
+    if (tab.value === 'weekly') {
+      await fetchWeeklyView()
+    }
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Bulk assign failed.',
+      color: 'error',
+    }
+  } finally {
+    bulkSaving.value = false
+  }
+}
+
+function openEndDialog(schedule: ScheduleRow) {
+  endingItem.value = schedule
+  endDate.value = new Date().toISOString().split('T')[0]
+  endDialog.value = true
+}
+
+async function confirmEndSchedule() {
+  if (!endingItem.value) {
+    return
   }
 
-  shiftFormOpen.value = true;
+  try {
+    const { data } = await axios.patch(`/api/hr/shift-schedules/${endingItem.value.id}/end`, {
+      end_date: endDate.value,
+    })
+
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    endDialog.value = false
+
+    await fetchSchedules()
+
+    if (tab.value === 'weekly') {
+      await fetchWeeklyView()
+    }
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to end schedule.',
+      color: 'error',
+    }
+  }
+}
+
+function askDelete(schedule: ScheduleRow) {
+  deletingItem.value = schedule
+  confirmDeleteDialog.value = true
+}
+
+async function confirmDeleteSchedule() {
+  if (!deletingItem.value) {
+    return
+  }
+
+  deleteSaving.value = true
+
+  try {
+    const { data } = await axios.delete(`/api/hr/shift-schedules/${deletingItem.value.id}`)
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    confirmDeleteDialog.value = false
+    deletingItem.value = null
+
+    await fetchSchedules()
+
+    if (tab.value === 'weekly') {
+      await fetchWeeklyView()
+    }
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to remove schedule.',
+      color: 'error',
+    }
+  } finally {
+    deleteSaving.value = false
+  }
+}
+
+async function fetchWeeklyView() {
+  weeklyLoading.value = true
+
+  try {
+    const { data } = await axios.get('/api/hr/shift-schedules/weekly', {
+      params: {
+        week_start: weekStart.value,
+      },
+    })
+
+    weeklyGrid.value = data.grid ?? []
+    weekDays.value = data.days ?? []
+    weekLabel.value = `${data.week_start} - ${data.week_end}`
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to load weekly view.',
+      color: 'error',
+    }
+  } finally {
+    weeklyLoading.value = false
+  }
+}
+
+function changeWeek(offset: number) {
+  const next = new Date(weekStart.value)
+  next.setDate(next.getDate() + offset * 7)
+  weekStart.value = next.toISOString().split('T')[0]
+}
+
+async function openManageShifts() {
+  manageShiftsDialog.value = true
+
+  try {
+    const { data } = await axios.get('/api/hr/shifts/list')
+    allShifts.value = data.shifts ?? []
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to load shifts.',
+      color: 'error',
+    }
+  }
+}
+
+function resetShiftForm() {
+  editingShift.value = null
+  shiftForm.name = ''
+  shiftForm.start_time = '08:00'
+  shiftForm.end_time = '17:00'
+  shiftForm.color = '#4f6ef7'
+  shiftForm.working_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  shiftForm.break_duration = 60
+  shiftForm.description = ''
+  shiftForm.status = 'Active'
+  shiftErrors.value = {}
+}
+
+function editShift(shift: ShiftOption) {
+  editingShift.value = shift
+  shiftForm.name = shift.name
+  shiftForm.start_time = shift.start_time ?? '08:00'
+  shiftForm.end_time = shift.end_time ?? '17:00'
+  shiftForm.color = shift.color ?? '#4f6ef7'
+  shiftForm.working_days = [...(shift.working_days ?? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])]
+  shiftForm.break_duration = shift.break_duration ?? 60
+  shiftForm.description = shift.description ?? ''
+  shiftForm.status = shift.status ?? 'Active'
+  shiftErrors.value = {}
 }
 
 async function saveShift() {
+  shiftSaving.value = true
+
   try {
     const payload = {
-      name: shiftForm.name,
-      start_time: shiftForm.start_time,
-      end_time: shiftForm.end_time,
-      break_duration: Number(shiftForm.break_duration || 0),
-      working_days: shiftForm.working_days,
-      color: shiftForm.color,
-      status: shiftForm.status
-    };
-
-    if (shiftForm.id) {
-      await axios.put(`/api/hr/shifts/${shiftForm.id}`, payload);
-    } else {
-      await axios.post('/api/hr/shifts', payload);
+      ...shiftForm,
+      description: shiftForm.description || undefined,
     }
 
-    shiftFormOpen.value = false;
-    snackbar.value = { show: true, message: 'Shift saved.', color: 'success' };
-    await Promise.all([fetchShifts(), fetchSchedules()]);
-  } catch (e: any) {
-    snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Shift save failed.', color: 'error' };
+    if (editingShift.value) {
+      await axios.put(`/api/hr/shifts/${editingShift.value.id}/update`, payload)
+    } else {
+      await axios.post('/api/hr/shifts/create', payload)
+    }
+
+    snackbar.value = {
+      show: true,
+      message: 'Shift saved.',
+      color: 'success',
+    }
+
+    resetShiftForm()
+    await openManageShifts()
+    await fetchSchedules()
+  } catch (error: any) {
+    if (error?.response?.status === 422) {
+      shiftErrors.value = error.response.data.errors ?? {}
+    }
+
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to save shift.',
+      color: 'error',
+    }
+  } finally {
+    shiftSaving.value = false
   }
 }
 
-async function removeShift(s: Shift) {
+async function removeShift(shift: ShiftOption) {
   try {
-    await axios.delete(`/api/hr/shifts/${s.id}`);
-    snackbar.value = { show: true, message: 'Shift deleted.', color: 'success' };
-    await Promise.all([fetchShifts(), fetchSchedules()]);
-  } catch (e: any) {
-    snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Cannot delete shift.', color: 'error' };
+    const { data } = await axios.delete(`/api/hr/shifts/${shift.id}/delete`)
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    await openManageShifts()
+    await fetchSchedules()
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to delete shift.',
+      color: 'error',
+    }
   }
-}
-
-function exportCsv() {
-  const rows = schedules.value;
-  if (!rows.length) return;
-
-  const headers = ['Employee', 'Employee ID', 'Department', 'Shift', 'Start', 'End', 'Effective From', 'Effective To'];
-  const csvRows = rows.map((r) => [
-    r.employee.full_name,
-    r.employee.employee_id,
-    r.employee.department?.name ?? '-',
-    r.shift.name,
-    r.shift.start_time,
-    r.shift.end_time,
-    r.effective_from,
-    r.effective_to ?? 'Ongoing'
-  ]);
-
-  const csvContent = [headers, ...csvRows]
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'shift-schedules.csv';
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 watch(
-  () => [filters.search, filters.shift_id, filters.department, filters.active_only],
+  () => [filters.search, filters.shiftId, filters.department, filters.activeOnly],
   () => {
-    pagination.page = 1;
-    fetchSchedules();
+    pagination.page = 1
+    fetchSchedules()
+  },
+)
+
+watch(
+  () => [pagination.page, pagination.perPage],
+  () => {
+    fetchSchedules()
+  },
+)
+
+watch(tab, (value) => {
+  if (value === 'weekly') {
+    fetchWeeklyView()
   }
-);
+})
+
+watch(weekStart, () => {
+  if (tab.value === 'weekly') {
+    fetchWeeklyView()
+  }
+})
 
 onMounted(async () => {
-  applyDummy();
-  await Promise.all([fetchShifts(), fetchEmployees(), fetchSchedules()]);
-});
+  await fetchSchedules()
+})
 </script>
 
 <template>
   <BaseBreadcrumb title="Shifts &amp; Schedules" subtitle="Manage work shifts and employee schedules" :breadcrumbs="breadcrumbs" />
 
-  <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
+  <div class="d-flex justify-space-between align-center flex-wrap ga-3 mb-4">
     <div>
       <h2 class="text-h3 mb-1">Shifts &amp; Schedules</h2>
-      <p class="text-subtitle-1 text-lightText mb-0">Manage work shifts and employee schedules</p>
+      <p class="text-subtitle-1 text-lightText mb-0">Manage work shifts, assignments, and the weekly schedule grid.</p>
     </div>
-    <div class="d-flex ga-2">
-      <v-btn variant="outlined" prepend-icon="mdi-cog" @click="manageDialog = true">Manage Shifts</v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openAssign">Assign Shift</v-btn>
+    <div class="d-flex ga-2 flex-wrap">
+      <v-btn variant="outlined" prepend-icon="mdi-cog" @click="openManageShifts">Manage Shifts</v-btn>
+      <v-btn variant="outlined" prepend-icon="mdi-account-multiple" @click="bulkDialog = true; fetchEmployees()">Bulk Assign</v-btn>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="openAssignDialog()">Assign Shift</v-btn>
     </div>
   </div>
 
   <v-row class="mb-0">
-    <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
-        <v-card-text>Active Shifts: <strong>{{ summary.total_shifts }}</strong></v-card-text>
+    <v-col cols="12" md="4">
+      <v-card variant="outlined" class="hr-card-shadow">
+        <v-card-text>
+          <div class="text-caption text-medium-emphasis">Active Shifts</div>
+          <div class="text-h4 mt-1">{{ stats.active_shifts }}</div>
+        </v-card-text>
       </v-card>
     </v-col>
-    <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
-        <v-card-text>Assigned Employees: <strong>{{ summary.assigned_employees }}</strong></v-card-text>
+    <v-col cols="12" md="4">
+      <v-card variant="outlined" class="hr-card-shadow">
+        <v-card-text>
+          <div class="text-caption text-medium-emphasis">Assigned Employees</div>
+          <div class="text-h4 mt-1">{{ stats.assigned }}</div>
+        </v-card-text>
       </v-card>
     </v-col>
-    <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
-        <v-card-text>Unassigned Employees: <strong>{{ summary.unassigned_employees }}</strong></v-card-text>
+    <v-col cols="12" md="4">
+      <v-card variant="outlined" class="hr-card-shadow">
+        <v-card-text>
+          <div class="text-caption text-medium-emphasis">Unassigned Employees</div>
+          <div class="text-h4 mt-1">{{ stats.unassigned }}</div>
+        </v-card-text>
       </v-card>
     </v-col>
   </v-row>
 
-  <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
+  <v-card variant="outlined" class="hr-card-shadow">
     <v-tabs v-model="tab" color="primary" class="px-4 pt-2">
       <v-tab value="list">Schedule List</v-tab>
       <v-tab value="weekly">Weekly View</v-tab>
@@ -483,145 +671,343 @@ onMounted(async () => {
     <v-window v-model="tab">
       <v-window-item value="list">
         <div class="pa-4">
-          <v-card class="bg-surface rounded-lg hr-card-shadow mb-4" variant="outlined" elevation="0">
+          <v-card variant="outlined" class="mb-4">
             <v-card-text>
               <v-row>
                 <v-col cols="12" md="4">
                   <v-text-field v-model="filters.search" placeholder="Search by employee name or ID..." variant="outlined" hide-details />
                 </v-col>
                 <v-col cols="12" sm="6" md="3">
-                  <v-select v-model="filters.shift_id" :items="shiftFilterOptions" label="Shift" variant="outlined" hide-details />
+                  <v-select v-model="filters.shiftId" :items="shiftFilterItems" label="Shift" variant="outlined" hide-details />
                 </v-col>
                 <v-col cols="12" sm="6" md="3">
-                  <v-select v-model="filters.department" :items="deptOptions" label="Department" variant="outlined" hide-details />
+                  <v-select v-model="filters.department" :items="departmentItems" label="Department" variant="outlined" hide-details />
                 </v-col>
                 <v-col cols="12" md="2" class="d-flex align-center">
-                  <v-switch v-model="filters.active_only" label="Active Only" hide-details color="primary" />
+                  <v-switch v-model="filters.activeOnly" label="Active Only" hide-details color="primary" />
                 </v-col>
               </v-row>
 
-              <div class="d-flex justify-space-between mt-2">
-                <v-btn variant="text" color="primary" @click="filters.search=''; filters.shift_id=''; filters.department=''; filters.active_only=true">Reset Filters</v-btn>
-                <div class="d-flex ga-2">
-                  <v-btn size="small" variant="outlined" prepend-icon="mdi-account-multiple" @click="bulkDialog = true">Bulk Assign Shift</v-btn>
-                  <v-btn size="small" variant="outlined" prepend-icon="mdi-download" @click="exportCsv">Export CSV</v-btn>
+              <div class="d-flex justify-space-between flex-wrap ga-2 mt-3">
+                <v-btn variant="text" color="primary" @click="filters.search=''; filters.shiftId=null; filters.department=null; filters.activeOnly=true">
+                  Reset Filters
+                </v-btn>
+                <div class="text-caption text-medium-emphasis d-flex align-center">
+                  Showing {{ schedules.length }} of {{ pagination.total }} schedules
                 </div>
               </div>
             </v-card-text>
           </v-card>
 
-          <v-skeleton-loader v-if="loading && !schedules.length" type="table" />
+          <v-skeleton-loader v-if="loading" type="table-tbody" />
 
-          <v-data-table-server
-            v-else
-            :headers="headers"
-            :items="schedules"
-            :items-length="pagination.total"
-            :items-per-page="pagination.perPage"
-            :page="pagination.page"
-            :items-per-page-options="[10, 25, 50]"
-            item-value="id"
-            @update:options="(o: any) => { pagination.page = o.page; pagination.perPage = o.itemsPerPage; fetchSchedules(); }"
-          >
-            <template #item.employee="{ item }">
-              <div class="d-flex align-center ga-3 cursor-pointer" @click="router.visit(`/hr/employees/${rowData(item).employee.id}`)">
-                <v-avatar size="34" color="primary" variant="tonal">
-                  <img v-if="rowData(item).employee.avatar_url" :src="rowData(item).employee.avatar_url || ''" :alt="rowData(item).employee.full_name" />
-                  <span v-else class="text-caption font-weight-bold">{{ initials(rowData(item).employee.full_name) }}</span>
-                </v-avatar>
-                <div>
-                  <div class="font-weight-medium">{{ rowData(item).employee.full_name }}</div>
-                  <div class="text-caption text-lightText">{{ rowData(item).employee.employee_id }}</div>
-                </div>
-              </div>
-            </template>
+          <template v-else>
+            <v-table class="schedule-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Department</th>
+                  <th>Shift</th>
+                  <th>Schedule</th>
+                  <th>Effective From</th>
+                  <th>Effective To</th>
+                  <th>Status</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="sch in schedules" :key="sch.id">
+                  <td>
+                    <div v-if="sch.employee" class="d-flex align-center ga-3">
+                      <v-avatar size="34" color="primary" variant="tonal">
+                        <img v-if="sch.employee.avatar" :src="sch.employee.avatar" :alt="sch.employee.name" />
+                        <span v-else class="text-caption font-weight-bold">{{ sch.employee.initials }}</span>
+                      </v-avatar>
+                      <div>
+                        <div class="font-weight-medium">{{ sch.employee.name }}</div>
+                        <div class="text-caption text-medium-emphasis">{{ sch.employee.employee_id }}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{{ sch.employee?.department ?? '-' }}</td>
+                  <td>
+                    <v-chip v-if="sch.shift" size="small" :color="sch.shift.color" variant="tonal">
+                      {{ sch.shift.name }}
+                    </v-chip>
+                  </td>
+                  <td>
+                    <div>{{ sch.shift?.schedule_label ?? '-' }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ sch.shift?.working_days?.join(', ') ?? '' }}</div>
+                  </td>
+                  <td>{{ sch.effective_from }}</td>
+                  <td>{{ sch.effective_to }}</td>
+                  <td>
+                    <v-chip size="small" :color="sch.status === 'Active' ? 'success' : 'secondary'" variant="tonal">
+                      {{ sch.status }}
+                    </v-chip>
+                  </td>
+                  <td class="text-right">
+                    <v-menu>
+                      <template #activator="{ props }">
+                        <v-btn v-bind="props" icon variant="text" size="small">
+                          <v-icon>mdi-dots-vertical</v-icon>
+                        </v-btn>
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item prepend-icon="mdi-swap-horizontal" title="Change Shift" @click="openAssignDialog(sch.employee)" />
+                        <v-list-item prepend-icon="mdi-calendar-remove" title="End Schedule" @click="openEndDialog(sch)" />
+                        <v-list-item prepend-icon="mdi-account" title="View Employee" @click="router.visit('/hr/employees/' + sch.employee?.id)" />
+                        <v-divider />
+                        <v-list-item prepend-icon="mdi-delete" title="Remove Schedule" base-color="error" @click="askDelete(sch)" />
+                      </v-list>
+                    </v-menu>
+                  </td>
+                </tr>
+                <tr v-if="schedules.length === 0">
+                  <td colspan="8" class="text-center py-8 text-medium-emphasis">No schedules found for the current filters.</td>
+                </tr>
+              </tbody>
+            </v-table>
 
-            <template #item.department="{ item }">{{ rowData(item).employee.department?.name ?? '-' }}</template>
-            <template #item.shift="{ item }"><v-chip size="small" :color="rowData(item).shift.color || '#4f6ef7'" variant="flat">{{ rowData(item).shift.name }}</v-chip></template>
-            <template #item.schedule="{ item }">{{ rowData(item).shift.start_time }} - {{ rowData(item).shift.end_time }}</template>
-            <template #item.effective_from="{ item }">{{ formatDate(rowData(item).effective_from) }}</template>
-            <template #item.effective_to="{ item }">
-              <v-chip v-if="!rowData(item).effective_to" color="success" size="small" variant="tonal">Ongoing</v-chip>
-              <span v-else>{{ formatDate(rowData(item).effective_to) }}</span>
-            </template>
-            <template #item.actions="{ item }">
-              <v-menu>
-                <template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template>
-                <v-list>
-                  <v-list-item title="Edit Schedule" @click="editSchedule(rowData(item))" />
-                  <v-list-item title="Change Shift" @click="editSchedule(rowData(item))" />
-                  <v-list-item title="Remove Assignment" base-color="error" @click="askDelete(rowData(item))" />
-                </v-list>
-              </v-menu>
-            </template>
-          </v-data-table-server>
+            <div class="d-flex justify-space-between align-center flex-wrap ga-3 mt-4">
+              <v-select
+                v-model="pagination.perPage"
+                :items="[10, 25, 50]"
+                label="Rows per page"
+                variant="outlined"
+                hide-details
+                density="compact"
+                max-width="140"
+              />
+              <v-pagination v-model="pagination.page" :length="Math.max(1, Math.ceil(pagination.total / pagination.perPage))" rounded="circle" />
+            </div>
+          </template>
         </div>
       </v-window-item>
 
       <v-window-item value="weekly">
         <div class="pa-4">
-          <v-alert type="info" variant="tonal">Weekly overview is available after loading active schedules.</v-alert>
+          <div class="d-flex justify-space-between align-center flex-wrap ga-3 mb-4">
+            <div>
+              <div class="text-caption text-medium-emphasis">Week Range</div>
+              <div class="text-h6">{{ weekLabel }}</div>
+            </div>
+            <div class="d-flex ga-2 flex-wrap">
+              <v-btn variant="outlined" prepend-icon="mdi-chevron-left" @click="changeWeek(-1)">Previous</v-btn>
+              <v-btn variant="outlined" @click="weekStart = new Date().toISOString().split('T')[0]">This Week</v-btn>
+              <v-btn variant="outlined" append-icon="mdi-chevron-right" @click="changeWeek(1)">Next</v-btn>
+            </div>
+          </div>
+
+          <v-skeleton-loader v-if="weeklyLoading" type="table" />
+
+          <v-table v-else class="weekly-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th
+                  v-for="day in weekDays"
+                  :key="day.date"
+                  :class="{ 'bg-grey-lighten-4': day.is_weekend, 'bg-blue-lighten-5': day.is_today }"
+                  class="text-center"
+                >
+                  <div class="font-weight-medium">{{ day.label }}</div>
+                  <div class="text-caption text-medium-emphasis">{{ day.date_label }}</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in weeklyGrid" :key="row.employee.id">
+                <td>
+                  <div class="d-flex align-center ga-2">
+                    <v-avatar size="28" color="primary" variant="tonal">
+                      <span class="text-caption">{{ row.employee.initials }}</span>
+                    </v-avatar>
+                    <div>
+                      <div class="text-body-2 font-weight-medium">{{ row.employee.name }}</div>
+                      <div class="text-caption text-medium-emphasis">{{ row.employee.dept }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td
+                  v-for="day in row.days"
+                  :key="day.date"
+                  class="text-center pa-1"
+                  :class="{ 'bg-grey-lighten-4': day.is_weekend }"
+                >
+                  <v-chip v-if="day.has_shift" size="x-small" :color="day.shift?.color" variant="tonal" class="text-caption">
+                    {{ day.shift?.name }}
+                  </v-chip>
+                  <span v-else-if="!day.is_weekend" class="text-caption text-medium-emphasis">-</span>
+                </td>
+              </tr>
+              <tr v-if="weeklyGrid.length === 0">
+                <td :colspan="weekDays.length + 1" class="text-center py-8 text-medium-emphasis">No weekly schedule data available.</td>
+              </tr>
+            </tbody>
+          </v-table>
         </div>
       </v-window-item>
     </v-window>
   </v-card>
 
-  <v-navigation-drawer v-model="drawerOpen" location="right" temporary width="520">
-    <div class="pa-4 border-b d-flex justify-space-between align-center">
-      <h5 class="text-h5 mb-0">{{ scheduleId ? 'Edit Schedule' : 'Assign Shift' }}</h5>
-      <v-btn icon="mdi-close" variant="text" @click="drawerOpen = false" />
-    </div>
-
-    <div class="pa-4 drawer-body">
-      <v-autocomplete v-model="form.employee_id" :items="employeeOptions" label="Employee *" variant="outlined" class="mb-3" />
-      <v-select v-model="form.shift_id" :items="shiftOptions" label="Shift *" variant="outlined" class="mb-3" />
-      <v-text-field v-model="form.effective_from" type="date" label="Effective From *" variant="outlined" class="mb-3" />
-      <v-text-field v-model="form.effective_to" type="date" label="Effective To" variant="outlined" class="mb-3" />
-      <v-textarea v-model="form.note" label="Note" rows="2" variant="outlined" />
-    </div>
-
-    <div class="pa-4 border-t d-flex justify-end ga-2 sticky-footer">
-      <v-btn variant="outlined" @click="drawerOpen = false">Cancel</v-btn>
-      <v-btn color="primary" @click="saveSchedule">Assign Shift</v-btn>
-    </div>
-  </v-navigation-drawer>
-
-  <v-dialog v-model="bulkDialog" max-width="560">
+  <v-dialog v-model="assignDialog" max-width="520">
     <v-card>
-      <v-card-title class="text-h5">Bulk Assign Shift</v-card-title>
-      <v-card-text>
-        <v-autocomplete v-model="bulkForm.employee_ids" :items="employeeOptions" label="Employees *" variant="outlined" multiple chips class="mb-3" />
-        <v-select v-model="bulkForm.shift_id" :items="shiftOptions" label="Shift *" variant="outlined" class="mb-3" />
-        <v-text-field v-model="bulkForm.effective_from" type="date" label="Effective From *" variant="outlined" class="mb-3" />
-        <v-textarea v-model="bulkForm.note" label="Note" rows="2" variant="outlined" />
+      <v-card-title class="pa-4">Assign Shift</v-card-title>
+      <v-card-text class="px-4">
+        <v-select
+          v-model="assignForm.employee_id"
+          label="Employee *"
+          variant="outlined"
+          :items="employeeItems"
+          :error-messages="assignErrors.employee_id?.[0]"
+          class="mb-3"
+        />
+        <v-select
+          v-model="assignForm.shift_id"
+          label="Shift *"
+          variant="outlined"
+          :items="shiftSelectItems"
+          item-title="title"
+          item-value="value"
+          :error-messages="assignErrors.shift_id?.[0]"
+          class="mb-3"
+        >
+          <template #item="{ item, props }">
+            <v-list-item v-bind="props">
+              <template #append>
+                <v-chip size="x-small" :color="item.raw.color">
+                  {{ item.raw.schedule_label }}
+                </v-chip>
+              </template>
+            </v-list-item>
+          </template>
+        </v-select>
+        <v-row>
+          <v-col cols="6">
+            <v-text-field
+              v-model="assignForm.effective_from"
+              label="Effective From *"
+              type="date"
+              variant="outlined"
+              :error-messages="assignErrors.effective_from?.[0]"
+            />
+          </v-col>
+          <v-col cols="6">
+            <v-text-field
+              v-model="assignForm.effective_to"
+              label="Effective To"
+              type="date"
+              variant="outlined"
+              :error-messages="assignErrors.effective_to?.[0]"
+              hint="Leave empty for ongoing"
+              persistent-hint
+            />
+          </v-col>
+        </v-row>
+        <v-textarea
+          v-model="assignForm.note"
+          label="Note (optional)"
+          variant="outlined"
+          rows="2"
+          class="mt-2"
+        />
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions class="pa-4">
         <v-spacer />
-        <v-btn variant="text" @click="bulkDialog = false">Cancel</v-btn>
-        <v-btn color="primary" :loading="bulkSaving" @click="runBulkAssign">Assign to {{ bulkForm.employee_ids.length }} Employees</v-btn>
+        <v-btn variant="text" @click="assignDialog = false">Cancel</v-btn>
+        <v-btn color="primary" variant="flat" :loading="assignSaving" @click="saveAssignShift">Assign Shift</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
 
-  <v-dialog v-model="manageDialog" max-width="720">
+  <v-dialog v-model="bulkDialog" max-width="560">
     <v-card>
-      <v-card-title class="text-h5 d-flex justify-space-between align-center">
-        <span>Manage Shifts</span>
-        <v-btn size="small" variant="outlined" prepend-icon="mdi-plus" @click="openShiftForm()">Add New Shift</v-btn>
-      </v-card-title>
-      <v-card-text>
+      <v-card-title class="pa-4">Bulk Assign Shift</v-card-title>
+      <v-card-text class="px-4">
+        <v-autocomplete
+          v-model="bulkForm.selectedIds"
+          label="Employees"
+          variant="outlined"
+          :items="employeeItems"
+          multiple
+          chips
+          closable-chips
+          hint="Leave empty to assign all active employees"
+          persistent-hint
+          class="mb-3"
+        />
+        <v-select
+          v-model="bulkForm.shiftId"
+          label="Shift *"
+          variant="outlined"
+          :items="shiftSelectItems"
+          item-title="title"
+          item-value="value"
+          class="mb-3"
+        />
         <v-row>
-          <v-col v-for="s in shifts" :key="s.id" cols="12" md="6">
-            <v-card class="shift-card" variant="outlined" :style="{ borderLeftColor: s.color || '#4f6ef7' }">
+          <v-col cols="6">
+            <v-text-field v-model="bulkForm.effectiveFrom" label="Effective From *" type="date" variant="outlined" />
+          </v-col>
+          <v-col cols="6">
+            <v-text-field v-model="bulkForm.effectiveTo" label="Effective To" type="date" variant="outlined" />
+          </v-col>
+        </v-row>
+      </v-card-text>
+      <v-card-actions class="pa-4">
+        <v-spacer />
+        <v-btn variant="text" @click="bulkDialog = false">Cancel</v-btn>
+        <v-btn color="primary" variant="flat" :loading="bulkSaving" @click="saveBulkAssign">{{ bulkButtonLabel }}</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="endDialog" max-width="420">
+    <v-card>
+      <v-card-title class="pa-4">End Schedule</v-card-title>
+      <v-card-text class="px-4">
+        <div class="text-body-2 mb-3">
+          End the current schedule for <strong>{{ endingItem?.employee?.name }}</strong>.
+        </div>
+        <v-text-field v-model="endDate" type="date" label="End Date" variant="outlined" />
+      </v-card-text>
+      <v-card-actions class="pa-4">
+        <v-spacer />
+        <v-btn variant="text" @click="endDialog = false">Cancel</v-btn>
+        <v-btn color="warning" variant="flat" @click="confirmEndSchedule">End Schedule</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="manageShiftsDialog" max-width="980">
+    <v-card>
+      <v-card-title class="pa-4 d-flex justify-space-between align-center flex-wrap ga-2">
+        <span>Manage Shifts</span>
+        <v-btn variant="outlined" prepend-icon="mdi-plus" @click="resetShiftForm">New Shift</v-btn>
+      </v-card-title>
+      <v-card-text class="px-4">
+        <v-row class="mb-2">
+          <v-col v-for="shift in allShifts" :key="shift.id" cols="12" md="6">
+            <v-card variant="outlined" class="shift-card" :style="{ borderLeftColor: shift.color || '#4f6ef7' }">
               <v-card-text>
-                <div class="font-weight-bold">{{ s.name }}</div>
-                <div class="text-body-2">{{ s.start_time }} - {{ s.end_time }}</div>
-                <div class="text-caption text-lightText mt-1">Employees: {{ s.employees_count }}</div>
-                <div class="d-flex justify-space-between mt-2">
-                  <v-chip size="x-small" :color="s.status === 'Active' ? 'success' : 'secondary'" variant="tonal">{{ s.status }}</v-chip>
+                <div class="d-flex justify-space-between align-start ga-3">
+                  <div>
+                    <div class="font-weight-bold">{{ shift.name }}</div>
+                    <div class="text-body-2">{{ shift.schedule_label }}</div>
+                    <div class="text-caption text-medium-emphasis mt-1">{{ shift.working_days?.join(', ') }}</div>
+                  </div>
+                  <v-chip size="small" :color="shift.status === 'Active' ? 'success' : 'secondary'" variant="tonal">
+                    {{ shift.status }}
+                  </v-chip>
+                </div>
+                <div class="d-flex justify-space-between align-center mt-3">
+                  <div class="text-caption text-medium-emphasis">
+                    Assigned: {{ shift.assigned_count ?? 0 }} | Break: {{ shift.break_duration ?? 60 }} min | Hours: {{ shift.duration_hours ?? 0 }}
+                  </div>
                   <div class="d-flex ga-1">
-                    <v-btn icon="mdi-pencil" size="small" variant="text" @click="openShiftForm(s)" />
-                    <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="removeShift(s)" />
+                    <v-btn icon="mdi-pencil" size="small" variant="text" @click="editShift(shift)" />
+                    <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="removeShift(shift)" />
                   </div>
                 </div>
               </v-card-text>
@@ -629,49 +1015,77 @@ onMounted(async () => {
           </v-col>
         </v-row>
 
-        <v-expand-transition>
-          <div v-if="shiftFormOpen" class="mt-4">
-            <v-row>
-              <v-col cols="12" md="6"><v-text-field v-model="shiftForm.name" label="Shift Name *" variant="outlined" /></v-col>
-              <v-col cols="12" md="3"><v-text-field v-model="shiftForm.start_time" type="time" label="Start Time *" variant="outlined" /></v-col>
-              <v-col cols="12" md="3"><v-text-field v-model="shiftForm.end_time" type="time" label="End Time *" variant="outlined" /></v-col>
-              <v-col cols="12" md="4"><v-text-field v-model.number="shiftForm.break_duration" type="number" label="Break (min)" variant="outlined" /></v-col>
-              <v-col cols="12" md="4"><v-text-field v-model="shiftForm.color" label="Color" variant="outlined" /></v-col>
-              <v-col cols="12" md="4"><v-select v-model="shiftForm.status" :items="['Active', 'Inactive']" label="Status" variant="outlined" /></v-col>
-              <v-col cols="12">
-                <v-select v-model="shiftForm.working_days" :items="dayOptions" label="Working Days" variant="outlined" chips multiple />
-              </v-col>
-            </v-row>
+        <v-divider class="my-4" />
 
-            <v-alert type="info" variant="tonal" class="mb-3">Net hours: {{ netHours }} hrs/day (after break)</v-alert>
+        <div class="text-subtitle-1 font-weight-medium mb-3">
+          {{ editingShift ? 'Edit Shift' : 'Create Shift' }}
+        </div>
 
-            <div class="d-flex justify-end ga-2">
-              <v-btn variant="outlined" @click="shiftFormOpen = false">Cancel</v-btn>
-              <v-btn color="primary" @click="saveShift">Save Shift</v-btn>
-            </div>
-          </div>
-        </v-expand-transition>
+        <v-row>
+          <v-col cols="12" md="6">
+            <v-text-field v-model="shiftForm.name" label="Shift Name *" variant="outlined" :error-messages="shiftErrors.name?.[0]" />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-text-field v-model="shiftForm.start_time" label="Start Time *" type="time" variant="outlined" :error-messages="shiftErrors.start_time?.[0]" />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-text-field v-model="shiftForm.end_time" label="End Time *" type="time" variant="outlined" :error-messages="shiftErrors.end_time?.[0]" />
+          </v-col>
+          <v-col cols="12" md="4">
+            <v-text-field v-model.number="shiftForm.break_duration" label="Break Duration (min)" type="number" min="0" variant="outlined" />
+          </v-col>
+          <v-col cols="12" md="4">
+            <v-text-field v-model="shiftForm.color" label="Color" variant="outlined" />
+          </v-col>
+          <v-col cols="12" md="4">
+            <v-select v-model="shiftForm.status" :items="['Active', 'Inactive']" label="Status" variant="outlined" />
+          </v-col>
+          <v-col cols="12">
+            <v-select
+              v-model="shiftForm.working_days"
+              :items="dayOptions"
+              label="Working Days"
+              variant="outlined"
+              multiple
+              chips
+              :error-messages="shiftErrors.working_days?.[0]"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-textarea v-model="shiftForm.description" label="Description" variant="outlined" rows="2" />
+          </v-col>
+        </v-row>
+
+        <v-alert type="info" variant="tonal" class="mt-2">
+          {{ schedulePreview }} | Net hours after break: {{ durationPreview }}
+        </v-alert>
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions class="pa-4">
         <v-spacer />
-        <v-btn variant="text" @click="manageDialog = false">Close</v-btn>
+        <v-btn variant="text" @click="manageShiftsDialog = false">Close</v-btn>
+        <v-btn variant="outlined" @click="resetShiftForm">Reset</v-btn>
+        <v-btn color="primary" variant="flat" :loading="shiftSaving" @click="saveShift">Save Shift</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
 
-  <v-dialog v-model="confirmDialog.show" max-width="420">
+  <v-dialog v-model="confirmDeleteDialog" max-width="420">
     <v-card>
-      <v-card-title class="text-h5">Remove Assignment</v-card-title>
-      <v-card-text>{{ confirmDialog.message }}</v-card-text>
-      <v-card-actions>
+      <v-card-title class="pa-4">Remove Schedule</v-card-title>
+      <v-card-text class="px-4">
+        Remove the schedule for <strong>{{ deletingItem?.employee?.name }}</strong>?
+      </v-card-text>
+      <v-card-actions class="pa-4">
         <v-spacer />
-        <v-btn variant="text" @click="confirmDialog.show = false">Cancel</v-btn>
-        <v-btn color="error" variant="flat" @click="removeSchedule">Remove</v-btn>
+        <v-btn variant="text" @click="confirmDeleteDialog = false">Cancel</v-btn>
+        <v-btn color="error" variant="flat" :loading="deleteSaving" @click="confirmDeleteSchedule">Remove</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
 
-  <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+  <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3500">
+    {{ snackbar.message }}
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -679,27 +1093,11 @@ onMounted(async () => {
   box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
 }
 
-.cursor-pointer {
-  cursor: pointer;
-}
-
-.drawer-body {
-  height: calc(100% - 130px);
-  overflow-y: auto;
-}
-
-.sticky-footer {
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-}
-
-.border-b {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.border-t {
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+.schedule-table :deep(th),
+.schedule-table :deep(td),
+.weekly-table :deep(th),
+.weekly-table :deep(td) {
+  white-space: nowrap;
 }
 
 .shift-card {

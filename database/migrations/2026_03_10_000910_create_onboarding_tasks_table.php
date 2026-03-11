@@ -14,13 +14,12 @@ return new class extends Migration
 
         Schema::create('onboarding_tasks', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('onboarding_template_id')->constrained('onboarding_templates')->cascadeOnDelete();
+            $table->foreignId('template_id')->constrained('onboarding_templates')->cascadeOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->string('category')->nullable();
-            $table->unsignedInteger('due_days')->default(1);
-            $table->string('assigned_to_role')->nullable();
-            $table->boolean('is_required')->default(true);
+            $table->integer('due_days')->default(1);
+            $table->boolean('required')->default(true);
             $table->integer('sort_order')->default(0);
             $table->timestamps();
         });
@@ -31,4 +30,3 @@ return new class extends Migration
         Schema::dropIfExists('onboarding_tasks');
     }
 };
-

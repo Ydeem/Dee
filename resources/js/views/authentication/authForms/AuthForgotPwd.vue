@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { router } from '@inertiajs/vue3';
 
 const valid = ref(false);
 const logform = ref();
 const email = ref('');
 const emailRules = ref([(v: string) => !!v || 'E-mail is required', (v: string) => /.+@.+\..+/.test(v) || 'E-mail must be valid']);
 
-const router = useRouter();
-
 function validate() {
   logform.value.validate();
   if (logform.value) {
-    router.push('/starter');
+    router.visit('/starter');
   }
 }
 </script>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { shallowRef } from 'vue';
+import { computed } from 'vue';
 import { useCustomizerStore } from '../../../stores/customizer';
 import sidebarItems from './sidebarItem';
+import { usePermissions } from '@/composables/usePermissions';
 
 import NavGroup from './NavGroup/NavGroup.vue';
 import NavItem from './NavItem/NavItem.vue';
@@ -9,7 +10,44 @@ import NavCollapse from './NavCollapse/NavCollapse.vue';
 import Logo from '../logo/LogoMain.vue';
 
 const customizer = useCustomizerStore();
-const sidebarMenu = shallowRef(sidebarItems);
+const { can, isAdmin } = usePermissions();
+
+const permissionMap: Record<string, string> = {
+  '/hr/dashboard': 'view hr dashboard',
+  '/hr/employees': 'view employees',
+  '/hr/departments': 'view departments',
+  '/hr/designations': 'view designations',
+  '/hr/attendance': 'view attendance',
+  '/hr/leave-management': 'view leave requests',
+  '/hr/shifts': 'view shifts',
+  '/hr/job-openings': 'view job openings',
+  '/hr/applicants': 'view applicants',
+  '/hr/onboarding': 'view onboarding',
+  '/hr/payroll': 'view payroll',
+  '/hr/expenses': 'view expenses',
+  '/hr/reports': 'view reports',
+  '/hr/settings': 'view hr settings',
+  '/hr/roles-permissions': 'manage roles'
+};
+
+function filterItems(items: typeof sidebarItems): typeof sidebarItems {
+  return items
+    .map((item) => {
+      if (item.children?.length) {
+        const children = filterItems(item.children as typeof sidebarItems);
+        return children.length ? { ...item, children } : null;
+      }
+
+      if (!item.to) return item;
+      const permission = permissionMap[item.to];
+      if (!permission) return item;
+
+      return can(permission) || isAdmin() ? item : null;
+    })
+    .filter(Boolean) as typeof sidebarItems;
+}
+
+const sidebarMenu = computed(() => filterItems(sidebarItems));
 </script>
 
 <template>

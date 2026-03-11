@@ -8,17 +8,23 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('salary_structures')) {
+            return;
+        }
+
         Schema::create('salary_structures', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('employee_id')->constrained('employees')->cascadeOnDelete();
+            $table->string('name');
             $table->decimal('basic_salary', 12, 2);
-            $table->json('allowances')->nullable();
-            $table->date('effective_date');
-            $table->string('currency')->default('GHS');
-            $table->enum('pay_frequency', ['Monthly', 'Bi-weekly', 'Weekly'])->default('Monthly');
+            $table->decimal('housing_allowance', 12, 2)->default(0);
+            $table->decimal('transport_allowance', 12, 2)->default(0);
+            $table->decimal('meal_allowance', 12, 2)->default(0);
+            $table->decimal('other_allowances', 12, 2)->default(0);
+            $table->decimal('ssnit_employee', 5, 2)->default(5.5);
+            $table->decimal('ssnit_employer', 5, 2)->default(13.0);
+            $table->decimal('income_tax_rate', 5, 2)->default(0);
+            $table->string('status')->default('Active');
             $table->timestamps();
-
-            $table->unique('employee_id');
         });
     }
 
@@ -27,4 +33,3 @@ return new class extends Migration
         Schema::dropIfExists('salary_structures');
     }
 };
-

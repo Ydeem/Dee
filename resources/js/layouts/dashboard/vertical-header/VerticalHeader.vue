@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { router } from '@inertiajs/vue3';
 import SvgSprite from '@/components/shared/SvgSprite.vue';
 import { useCustomizerStore } from '../../../stores/customizer';
 
@@ -10,9 +11,9 @@ import Searchbar from './SearchBarPanel.vue';
 
 const customizer = useCustomizerStore();
 const quickActions = [
-  'Add Employee',
-  'Post Job',
-  'Record Attendance'
+  { title: 'Add Employee', route: '/hr/employees/create' },
+  { title: 'Post Job', route: '/hr/job-openings' },
+  { title: 'Record Attendance', route: '/hr/attendance' }
 ];
 const priority = ref(customizer.setHorizontalLayout ? 0 : 0);
 watch(priority, (newPriority) => {
@@ -94,8 +95,14 @@ watch(priority, (newPriority) => {
       </template>
       <v-sheet rounded="md" width="220">
         <v-list density="comfortable" aria-label="quick actions">
-          <v-list-item v-for="(action, index) in quickActions" :key="index" :value="action" color="primary">
-            <v-list-item-title>{{ action }}</v-list-item-title>
+          <v-list-item
+            v-for="action in quickActions"
+            :key="action.title"
+            :value="action.title"
+            color="primary"
+            @click="router.visit(action.route)"
+          >
+            <v-list-item-title>{{ action.title }}</v-list-item-title>
           </v-list-item>
         </v-list>
       </v-sheet>

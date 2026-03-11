@@ -6,135 +6,182 @@ use App\Models\HR\Employee;
 use App\Models\HR\PayrollRun;
 use App\Models\HR\Payslip;
 use App\Models\HR\SalaryStructure;
+use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 
 class PayrollSeeder extends Seeder
 {
     public function run(): void
     {
-        $employees = Employee::where('employment_status', 'Active')->get();
+        $this->seedSalaryStructures();
+        $this->assignStructuresToEmployees();
+        $this->seedPayrollRunsAndPayslips();
+    }
 
-        $allowanceTemplates = [
+    private function seedSalaryStructures(): void
+    {
+        $structures = [
             [
-                ['name' => 'Housing Allowance', 'amount' => 500],
-                ['name' => 'Transport Allowance', 'amount' => 200],
+                'name' => 'Junior Staff',
+                'basic_salary' => 3000,
+                'housing_allowance' => 500,
+                'transport_allowance' => 300,
+                'meal_allowance' => 200,
+                'other_allowances' => 0,
+                'ssnit_employee' => 5.5,
+                'ssnit_employer' => 13.0,
             ],
             [
-                ['name' => 'Housing Allowance', 'amount' => 800],
-                ['name' => 'Transport Allowance', 'amount' => 300],
-                ['name' => 'Medical Allowance', 'amount' => 200],
+                'name' => 'Mid-Level Staff',
+                'basic_salary' => 5000,
+                'housing_allowance' => 800,
+                'transport_allowance' => 500,
+                'meal_allowance' => 300,
+                'other_allowances' => 0,
+                'ssnit_employee' => 5.5,
+                'ssnit_employer' => 13.0,
             ],
             [
-                ['name' => 'Transport Allowance', 'amount' => 150],
+                'name' => 'Senior Staff',
+                'basic_salary' => 8000,
+                'housing_allowance' => 1500,
+                'transport_allowance' => 800,
+                'meal_allowance' => 500,
+                'other_allowances' => 0,
+                'ssnit_employee' => 5.5,
+                'ssnit_employer' => 13.0,
+            ],
+            [
+                'name' => 'Management',
+                'basic_salary' => 12000,
+                'housing_allowance' => 2500,
+                'transport_allowance' => 1200,
+                'meal_allowance' => 800,
+                'other_allowances' => 500,
+                'ssnit_employee' => 5.5,
+                'ssnit_employer' => 13.0,
+            ],
+            [
+                'name' => 'Executive',
+                'basic_salary' => 20000,
+                'housing_allowance' => 5000,
+                'transport_allowance' => 2000,
+                'meal_allowance' => 1000,
+                'other_allowances' => 2000,
+                'ssnit_employee' => 5.5,
+                'ssnit_employer' => 13.0,
             ],
         ];
 
-        foreach ($employees as $employee) {
-            $basicSalary = rand(2500, 12000);
-            $allowances = $allowanceTemplates[array_rand($allowanceTemplates)];
-
+        foreach ($structures as $data) {
             SalaryStructure::firstOrCreate(
-                ['employee_id' => $employee->id],
-                [
-                    'basic_salary' => $basicSalary,
-                    'allowances' => $allowances,
-                    'effective_date' => now()->subMonths(rand(1, 12))->toDateString(),
-                    'currency' => 'GHS',
-                    'pay_frequency' => 'Monthly',
-                ]
+                ['name' => $data['name']],
+                array_merge($data, ['status' => 'Active', 'income_tax_rate' => 0])
             );
         }
 
-        for ($i = 3; $i >= 1; $i--) {
-            $baseDate = now()->subMonths($i);
-            $periodMonth = $baseDate->month;
-            $periodYear = $baseDate->year;
+        SalaryStructure::query()
+            ->whereNotIn('name', collect($structures)->pluck('name'))
+            ->delete();
+    }
 
-            $run = PayrollRun::firstOrCreate(
+    private function assignStructuresToEmployees(): void
+    {
+        $employees = Employee::active()->get();
+        $structures = SalaryStructure::active()->orderBy('id')->get();
+
+        if ($employees->isEmpty() || $structures->isEmpty()) {
+            return;
+        }
+
+        foreach ($employees as $index => $employee) {
+            if (! $employee->salary_structure_id) {
+                $structure = $structures[$index % $structures->count()];
+                $employee->update(['salary_structure_id' => $structure->id]);
+            }
+        }
+    }
+
+    private function seedPayrollRunsAndPayslips(): void
+    {
+        $employees = Employee::active()->with('salaryStructure')->get();
+        if ($employees->isEmpty()) {
+            return;
+        }
+
+        for ($offset = 2; $offset >= 0; $offset--) {
+            $period = now()->subMonths($offset);
+            $month = $period->month;
+            $year = $period->year;
+
+            $status = $offset === 0 ? 'Pending Approval' : 'Paid';
+
+            $run = PayrollRun::updateOrCreate(
+                ['month' => $month, 'year' => $year],
                 [
-                    'period_month' => $periodMonth,
-                    'period_year' => $periodYear,
-                ],
-                [
-                    'title' => $baseDate->format('F Y') . ' Payroll',
-                    'pay_date' => $baseDate->copy()->endOfMonth()->toDateString(),
-                    'status' => 'Paid',
+                    'pay_date' => $period->copy()->endOfMonth()->toDateString(),
+                    'status' => $status,
                     'employee_count' => $employees->count(),
-                    'total_gross' => 0,
-                    'total_deductions' => 0,
-                    'total_net' => 0,
+                    'notes' => null,
                 ]
             );
 
             $totalGross = 0.0;
-            $totalDed = 0.0;
+            $totalDeductions = 0.0;
             $totalNet = 0.0;
 
             foreach ($employees as $employee) {
-                $salary = SalaryStructure::where('employee_id', $employee->id)->first();
-                if (!$salary) {
-                    continue;
-                }
+                $structure = $employee->salaryStructure;
 
-                $allowanceTotal = collect($salary->allowances ?? [])->sum('amount');
-                $gross = (float) $salary->basic_salary + (float) $allowanceTotal;
-                $tax = round($gross * 0.12, 2);
-                $ssnit = round($gross * 0.055, 2);
-                $net = round($gross - $tax - $ssnit, 2);
+                $basic = (float) ($employee->basic_salary ?? $structure?->basic_salary ?? 0);
+                $housing = (float) ($structure?->housing_allowance ?? 0);
+                $transport = (float) ($structure?->transport_allowance ?? 0);
+                $meal = (float) ($structure?->meal_allowance ?? 0);
+                $other = (float) ($structure?->other_allowances ?? 0);
 
-                Payslip::firstOrCreate(
+                $gross = $basic + $housing + $transport + $meal + $other;
+                $ssnitEmp = round($gross * ((float) ($structure?->ssnit_employee ?? 5.5) / 100), 2);
+                $ssnitEmpr = round($gross * ((float) ($structure?->ssnit_employer ?? 13.0) / 100), 2);
+                $incomeTax = SalaryStructure::calculateGhanaTax($gross - $ssnitEmp);
+                $totalDeduction = round($ssnitEmp + $incomeTax, 2);
+                $net = round($gross - $totalDeduction, 2);
+
+                Payslip::updateOrCreate(
                     [
                         'payroll_run_id' => $run->id,
                         'employee_id' => $employee->id,
                     ],
                     [
-                        'basic_salary' => $salary->basic_salary,
-                        'allowances' => $salary->allowances ?? [],
-                        'deductions' => [],
+                        'salary_structure_id' => $employee->salary_structure_id,
+                        'basic_salary' => $basic,
+                        'housing_allowance' => $housing,
+                        'transport_allowance' => $transport,
+                        'meal_allowance' => $meal,
+                        'other_allowances' => $other,
                         'gross_salary' => $gross,
-                        'tax_amount' => $tax,
-                        'ssnit_employee' => $ssnit,
-                        'ssnit_employer' => round($gross * 0.13, 2),
+                        'ssnit_employee' => $ssnitEmp,
+                        'ssnit_employer' => $ssnitEmpr,
+                        'income_tax' => $incomeTax,
                         'other_deductions' => 0,
+                        'total_deductions' => $totalDeduction,
                         'net_salary' => $net,
-                        'payment_status' => 'Paid',
-                        'payment_method' => 'Bank Transfer',
-                        'payment_date' => $run->pay_date,
-                        'bank_name' => $employee->bank_name,
-                        'account_number' => $employee->account_number,
+                        'status' => $status === 'Paid' ? 'Paid' : 'Draft',
+                        'paid_at' => $status === 'Paid'
+                            ? Carbon::parse($run->pay_date)->endOfDay()
+                            : null,
                     ]
                 );
 
                 $totalGross += $gross;
-                $totalDed += ($tax + $ssnit);
+                $totalDeductions += $totalDeduction;
                 $totalNet += $net;
             }
 
             $run->update([
-                'status' => 'Paid',
                 'total_gross' => round($totalGross, 2),
-                'total_deductions' => round($totalDed, 2),
+                'total_deductions' => round($totalDeductions, 2),
                 'total_net' => round($totalNet, 2),
-                'employee_count' => $employees->count(),
             ]);
         }
-
-        $thisMonth = now();
-        PayrollRun::firstOrCreate(
-            [
-                'period_month' => $thisMonth->month,
-                'period_year' => $thisMonth->year,
-            ],
-            [
-                'title' => $thisMonth->format('F Y') . ' Payroll',
-                'pay_date' => $thisMonth->copy()->endOfMonth()->toDateString(),
-                'status' => 'Draft',
-                'employee_count' => 0,
-                'total_gross' => 0,
-                'total_deductions' => 0,
-                'total_net' => 0,
-            ]
-        );
     }
 }
-

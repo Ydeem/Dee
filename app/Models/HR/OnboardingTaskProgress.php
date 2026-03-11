@@ -12,7 +12,9 @@ class OnboardingTaskProgress extends Model
     protected $table = 'onboarding_task_progress';
 
     protected $fillable = [
+        'onboarding_id',
         'employee_onboarding_id',
+        'task_id',
         'onboarding_task_id',
         'status',
         'completed_at',
@@ -26,17 +28,16 @@ class OnboardingTaskProgress extends Model
 
     public function onboarding()
     {
-        return $this->belongsTo(EmployeeOnboarding::class, 'employee_onboarding_id');
+        return $this->belongsTo(EmployeeOnboarding::class, 'onboarding_id');
     }
 
     public function task()
     {
-        return $this->belongsTo(OnboardingTask::class, 'onboarding_task_id');
+        return $this->belongsTo(OnboardingTask::class, 'task_id');
     }
 
-    public function completedByEmployee()
+    public function completedBy()
     {
         return $this->belongsTo(Employee::class, 'completed_by');
     }
 }
-

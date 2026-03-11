@@ -1,8 +1,9 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import { appUrl } from '@/utils/appUrl';
 
 interface EmployeeItem {
   id: number;
@@ -34,101 +35,12 @@ const loading = ref(true);
 const viewMode = ref<'table' | 'grid'>('table');
 const employees = ref<EmployeeItem[]>([]);
 const selectedEmployeeIds = ref<number[]>([]);
+const importDialog = ref(false);
+const importFile = ref<File | null>(null);
+const importing = ref(false);
 
 const departments = ref<OptionItem[]>([]);
 const designations = ref<OptionItem[]>([]);
-
-const dummyDepartments: OptionItem[] = [
-  { id: 1, name: 'People Operations' },
-  { id: 2, name: 'Engineering' },
-  { id: 3, name: 'Finance' },
-  { id: 4, name: 'Sales' }
-];
-
-const dummyDesignations: OptionItem[] = [
-  { id: 1, name: 'HR Manager' },
-  { id: 2, name: 'Software Engineer' },
-  { id: 3, name: 'Payroll Specialist' },
-  { id: 4, name: 'Sales Executive' }
-];
-
-const dummyEmployees: EmployeeItem[] = [
-  {
-    id: 1,
-    first_name: 'Pontian',
-    last_name: 'Npontu',
-    full_name: 'Pontian Npontu',
-    employee_id: 'EMP00001',
-    department: { id: 1, name: 'People Operations' },
-    designation: { id: 1, name: 'HR Manager' },
-    employment_type: 'Full-time',
-    join_date: '2024-01-08',
-    employment_status: 'Active',
-    personal_email: 'pontian.npontu@example.com',
-    phone: '+233240000001',
-    avatar_url: null
-  },
-  {
-    id: 2,
-    first_name: 'Sarah',
-    last_name: 'Oti',
-    full_name: 'Sarah Oti',
-    employee_id: 'EMP00002',
-    department: { id: 1, name: 'People Operations' },
-    designation: { id: 1, name: 'HR Manager' },
-    employment_type: 'Full-time',
-    join_date: '2026-03-03',
-    employment_status: 'Probation',
-    personal_email: 'sarah.oti@example.com',
-    phone: '+233240000002',
-    avatar_url: null
-  },
-  {
-    id: 3,
-    first_name: 'Daniel',
-    last_name: 'Kofi',
-    full_name: 'Daniel Kofi',
-    employee_id: 'EMP00003',
-    department: { id: 2, name: 'Engineering' },
-    designation: { id: 2, name: 'Software Engineer' },
-    employment_type: 'Full-time',
-    join_date: '2025-10-14',
-    employment_status: 'Active',
-    personal_email: 'daniel.kofi@example.com',
-    phone: '+233240000003',
-    avatar_url: null
-  },
-  {
-    id: 4,
-    first_name: 'Amanda',
-    last_name: 'Boateng',
-    full_name: 'Amanda Boateng',
-    employee_id: 'EMP00004',
-    department: { id: 3, name: 'Finance' },
-    designation: { id: 3, name: 'Payroll Specialist' },
-    employment_type: 'Contract',
-    join_date: '2025-05-01',
-    employment_status: 'On Leave',
-    personal_email: 'amanda.boateng@example.com',
-    phone: '+233240000004',
-    avatar_url: null
-  },
-  {
-    id: 5,
-    first_name: 'Michael',
-    last_name: 'Adu',
-    full_name: 'Michael Adu',
-    employee_id: 'EMP00005',
-    department: { id: 4, name: 'Sales' },
-    designation: { id: 4, name: 'Sales Executive' },
-    employment_type: 'Part-time',
-    join_date: '2025-11-20',
-    employment_status: 'Inactive',
-    personal_email: 'michael.adu@example.com',
-    phone: '+233240000005',
-    avatar_url: null
-  }
-];
 
 const pagination = reactive({
   page: 1,
@@ -148,6 +60,7 @@ const sort = reactive({
   sortBy: 'created_at',
   sortDir: 'desc'
 });
+const lastTableOptionsKey = ref('');
 
 const confirmDialog = ref({
   show: false,
@@ -213,15 +126,19 @@ function rowData(item: any): EmployeeItem {
 }
 
 function openAddEmployeePage() {
-  router.visit('/hr/employees/create');
+  router.visit(appUrl('/hr/employees/create'));
+}
+
+function openImportDialog() {
+  importDialog.value = true;
 }
 
 function openEditEmployeePage(employee: EmployeeItem) {
-  router.visit(`/hr/employees/${employee.id}/edit`);
+  router.visit(appUrl(`/hr/employees/${employee.id}/edit`));
 }
 
 function viewProfile(employee: EmployeeItem) {
-  router.visit(`/hr/employees/${employee.id}`);
+  router.visit(appUrl(`/hr/employees/${employee.id}`));
 }
 
 async function fetchOptions() {
@@ -229,17 +146,10 @@ async function fetchOptions() {
     const { data } = await axios.get('/api/hr/employees/options');
     departments.value = data.departments ?? [];
     designations.value = data.designations ?? [];
-
-    if (!departments.value.length) {
-      departments.value = dummyDepartments;
-    }
-    if (!designations.value.length) {
-      designations.value = dummyDesignations;
-    }
   } catch (error) {
-    departments.value = dummyDepartments;
-    designations.value = dummyDesignations;
-    snackbar.value = { show: true, message: 'Using dummy filter options.', color: 'warning' };
+    departments.value = [];
+    designations.value = [];
+    snackbar.value = { show: true, message: 'Failed to load filter options.', color: 'error' };
   }
 }
 
@@ -260,13 +170,18 @@ async function fetchEmployees() {
       }
     });
 
-    employees.value = data.employees?.data ?? [];
-    pagination.total = data.employees?.total ?? 0;
+    const rows = Array.isArray(data?.employees?.data)
+      ? data.employees.data
+      : Array.isArray(data?.data?.data)
+        ? data.data.data
+        : [];
 
-    if (!employees.value.length) {
-      employees.value = dummyEmployees;
-      pagination.total = dummyEmployees.length;
-    }
+    employees.value = rows.map((employee: EmployeeItem) => ({
+      ...employee,
+      full_name: employee.full_name || `${employee.first_name ?? ''} ${employee.last_name ?? ''}`.trim(),
+      avatar_url: employee.avatar_url ?? null
+    }));
+    pagination.total = Number(data?.employees?.total ?? data?.data?.total ?? 0);
 
     if ((data.filters?.departments ?? []).length && !departments.value.length) {
       departments.value = data.filters.departments.map((name: string, index: number) => ({ id: index + 1, name }));
@@ -276,9 +191,9 @@ async function fetchEmployees() {
       designations.value = data.filters.designations.map((name: string, index: number) => ({ id: index + 1, name }));
     }
   } catch (error) {
-    employees.value = dummyEmployees;
-    pagination.total = dummyEmployees.length;
-    snackbar.value = { show: true, message: 'Using dummy employee data.', color: 'warning' };
+    employees.value = [];
+    pagination.total = 0;
+    snackbar.value = { show: true, message: 'Failed to load employees.', color: 'error' };
   } finally {
     loading.value = false;
   }
@@ -293,17 +208,32 @@ function resetFilters() {
 }
 
 function handleTableOptions(options: any) {
-  pagination.page = options.page;
-  pagination.perPage = options.itemsPerPage;
-
+  const nextPage = options.page;
+  const nextPerPage = options.itemsPerPage;
+  let nextSortBy = 'created_at';
+  let nextSortDir = 'desc';
   if (options.sortBy?.length) {
     const selectedKey = options.sortBy[0].key;
-    sort.sortBy = selectedKey === 'full_name' ? 'first_name' : selectedKey;
-    sort.sortDir = options.sortBy[0].order ?? 'asc';
-  } else {
-    sort.sortBy = 'created_at';
-    sort.sortDir = 'desc';
+    nextSortBy = selectedKey === 'full_name' ? 'first_name' : selectedKey;
+    nextSortDir = options.sortBy[0].order ?? 'asc';
   }
+
+  const nextKey = JSON.stringify({
+    page: nextPage,
+    perPage: nextPerPage,
+    sortBy: nextSortBy,
+    sortDir: nextSortDir
+  });
+
+  if (lastTableOptionsKey.value === nextKey) {
+    return;
+  }
+
+  lastTableOptionsKey.value = nextKey;
+  pagination.page = nextPage;
+  pagination.perPage = nextPerPage;
+  sort.sortBy = nextSortBy;
+  sort.sortDir = nextSortDir;
 
   fetchEmployees();
 }
@@ -360,6 +290,41 @@ async function confirmAction() {
   }
 }
 
+async function handleImport() {
+  if (!importFile.value) return;
+
+  importing.value = true;
+  const formData = new FormData();
+  formData.append('file', importFile.value);
+
+  try {
+    const { data } = await axios.post('/api/hr/employees/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success'
+    };
+    importDialog.value = false;
+    importFile.value = null;
+    fetchEmployees();
+
+    if (data.errors?.length) {
+      console.warn('Import errors:', data.errors);
+    }
+  } catch (error) {
+    snackbar.value = {
+      show: true,
+      message: 'Import failed.',
+      color: 'error'
+    };
+  } finally {
+    importing.value = false;
+  }
+}
+
 async function runBulkAction(action: 'activate' | 'deactivate' | 'export') {
   if (!selectedEmployeeIds.value.length) return;
 
@@ -386,7 +351,7 @@ function exportRows(rows: EmployeeItem[], format: 'csv' | 'pdf') {
   if (format === 'csv') {
     const headers = [
       'Name',
-      'Employee ID',
+      'Employee ID', 
       'Department',
       'Designation',
       'Type',
@@ -422,7 +387,7 @@ function exportRows(rows: EmployeeItem[], format: 'csv' | 'pdf') {
     return;
   }
 
-  // PDF print — avoid using a template literal that includes a script-closing tag
+  // PDF print — avoid any literal script-closing sequence in this block.
   // as it breaks the Vue SFC compiler. Use document.write() line by line
   // and call newWindow.print() directly instead of injecting a script tag.
   const tableRows = rows
@@ -512,7 +477,7 @@ onMounted(async () => {
       <p class="text-subtitle-1 text-lightText mb-0">Manage your workforce</p>
     </div>
     <div class="d-flex ga-2">
-      <v-btn variant="outlined" prepend-icon="mdi-upload">Import Employees</v-btn>
+      <v-btn variant="outlined" prepend-icon="mdi-upload" @click="openImportDialog">Import Employees</v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openAddEmployeePage">Add Employee</v-btn>
     </div>
   </div>
@@ -563,8 +528,31 @@ onMounted(async () => {
       <v-skeleton-loader v-if="loading && !employees.length" type="table" />
 
       <template v-else>
+        <div
+          v-if="!loading && employees.length === 0"
+          class="text-center py-16"
+        >
+          <v-icon size="64" color="grey-lighten-2">
+            mdi-account-group-outline
+          </v-icon>
+          <p class="text-h6 text-medium-emphasis mt-4">
+            No employees yet
+          </p>
+          <p class="text-body-2 text-medium-emphasis mb-6">
+            Get started by adding your first employee
+          </p>
+          <v-btn
+            color="primary"
+            variant="flat"
+            prepend-icon="mdi-plus"
+            @click="router.visit(appUrl('/hr/employees/create'))"
+          >
+            Add First Employee
+          </v-btn>
+        </div>
+
         <v-data-table-server
-          v-if="viewMode === 'table'"
+          v-else-if="viewMode === 'table'"
           v-model="selectedEmployeeIds"
           :headers="tableHeaders"
           :items="employees"
@@ -609,7 +597,7 @@ onMounted(async () => {
           </template>
         </v-data-table-server>
 
-        <v-row v-else>
+        <v-row v-else-if="viewMode === 'grid'">
           <v-col v-for="employee in employees" :key="employee.id" cols="12" sm="6" md="4" xl="3">
             <v-card class="rounded-lg hr-card-shadow" variant="outlined" elevation="0">
               <v-card-text>
@@ -647,6 +635,40 @@ onMounted(async () => {
         <v-spacer />
         <v-btn variant="text" @click="confirmDialog.show = false">Cancel</v-btn>
         <v-btn color="error" variant="flat" @click="confirmAction">Confirm</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="importDialog" max-width="480">
+    <v-card>
+      <v-card-title>Import Employees</v-card-title>
+      <v-card-text>
+        <p class="mb-4 text-body-2">
+          Upload a CSV file with columns:
+          first_name, last_name, personal_email,
+          phone, department, designation,
+          employment_type, employment_status, join_date
+        </p>
+        <v-file-input
+          v-model="importFile"
+          label="Choose CSV file"
+          accept=".csv"
+          variant="outlined"
+          prepend-icon="mdi-file-delimited"
+        />
+        <v-btn
+          text
+          color="primary"
+          :href="appUrl('/imports/employee-import-template.csv')"
+          download
+        >
+          Download CSV Template
+        </v-btn>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="importDialog = false">Cancel</v-btn>
+        <v-btn color="primary" variant="flat" :loading="importing" @click="handleImport">Import</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

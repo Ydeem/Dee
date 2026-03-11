@@ -32,5 +32,8 @@ class DatabaseSeeder extends Seeder
         $this->call(ApplicantSeeder::class);
         $this->call(OnboardingSeeder::class);
         $this->call(PayrollSeeder::class);
+        $this->call(ExpenseSeeder::class);
+        $this->call(HRSettingSeeder::class);
+        $this->call(RolesPermissionsSeeder::class);
     }
 }

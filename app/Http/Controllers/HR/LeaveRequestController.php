@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\HR;
 
 use App\Http\Controllers\Controller;
+use App\Models\HR\Department;
 use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\LeaveType;
@@ -13,11 +14,22 @@ class LeaveRequestController extends Controller
 {
     public function index(Request $request)
     {
-        $query = LeaveRequest::with(['employee.department', 'leaveType', 'approvedBy'])
+        $month = (int) ($request->month ?? now()->month);
+        $year = (int) ($request->year ?? now()->year);
+
+        $query = LeaveRequest::with([
+            'employee:id,first_name,last_name,employee_id,avatar,department_id',
+            'employee.department:id,name',
+            'leaveType:id,name,color',
+        ])
+            ->whereHas('employee')
+            ->when($month, fn ($q) => $q->whereMonth('from_date', $month))
+            ->when($year, fn ($q) => $q->whereYear('from_date', $year))
             ->when($request->search, fn ($q) =>
                 $q->whereHas('employee', fn ($employeeQuery) =>
                     $employeeQuery->where('first_name', 'like', '%' . $request->search . '%')
                         ->orWhere('last_name', 'like', '%' . $request->search . '%')
+                        ->orWhere('employee_id', 'like', '%' . $request->search . '%')
                 )
             )
             ->when($request->department, fn ($q) =>
@@ -25,34 +37,65 @@ class LeaveRequestController extends Controller
                     $departmentQuery->where('name', $request->department)
                 )
             )
-            ->when($request->leave_type, fn ($q) =>
-                $q->where('leave_type_id', $request->leave_type)
-            )
+            ->when($request->leave_type, function ($q) use ($request) {
+                $leaveType = $request->leave_type;
+
+                if (is_numeric($leaveType)) {
+                    $q->where('leave_type_id', $leaveType);
+                } else {
+                    $q->whereHas('leaveType', fn ($leaveTypeQuery) =>
+                        $leaveTypeQuery->where('name', $leaveType)
+                    );
+                }
+            })
             ->when($request->status, fn ($q) =>
                 $q->where('status', $request->status)
-            )
-            ->when($request->month, fn ($q) =>
-                $q->whereMonth('from_date', Carbon::parse($request->month)->month)
-                    ->whereYear('from_date', Carbon::parse($request->month)->year)
             );
 
-        $requests = $query->orderBy('created_at', 'desc')->paginate((int) ($request->per_page ?? 10));
+        $requests = $query
+            ->orderBy('created_at', 'desc')
+            ->paginate((int) ($request->per_page ?? 10));
 
-        $summary = [
-            'pending' => LeaveRequest::where('status', 'Pending')->count(),
-            'approved' => LeaveRequest::where('status', 'Approved')->whereMonth('from_date', now()->month)->count(),
-            'rejected' => LeaveRequest::where('status', 'Rejected')->whereMonth('from_date', now()->month)->count(),
-            'on_leave_today' => LeaveRequest::where('status', 'Approved')
-                ->whereDate('from_date', '<=', now())
-                ->whereDate('to_date', '>=', now())
-                ->count(),
-        ];
+        $requests->through(function (LeaveRequest $leaveRequest) {
+            return [
+                'id' => $leaveRequest->id,
+                'from_date' => $leaveRequest->from_date?->format('M d, Y'),
+                'to_date' => $leaveRequest->to_date?->format('M d, Y'),
+                'from_date_raw' => $leaveRequest->from_date?->format('Y-m-d'),
+                'to_date_raw' => $leaveRequest->to_date?->format('Y-m-d'),
+                'days_requested' => (int) $leaveRequest->days_requested,
+                'reason' => $leaveRequest->reason,
+                'status' => $leaveRequest->status,
+                'status_color' => $leaveRequest->status_color,
+                'can_approve' => $leaveRequest->can_approve,
+                'can_reject' => $leaveRequest->can_reject,
+                'can_cancel' => $leaveRequest->can_cancel,
+                'rejection_reason' => $leaveRequest->rejection_reason,
+                'applied_on' => $leaveRequest->created_at?->format('M d, Y'),
+                'approved_at' => $leaveRequest->approved_at?->format('M d, Y'),
+                'employee' => $leaveRequest->employee ? [
+                    'id' => $leaveRequest->employee->id,
+                    'name' => $leaveRequest->employee->full_name,
+                    'employee_id' => $leaveRequest->employee->employee_id,
+                    'avatar' => $leaveRequest->employee->avatar_url,
+                    'initials' => $leaveRequest->employee->initials,
+                    'department' => $leaveRequest->employee->department?->name ?? '-',
+                ] : null,
+                'leave_type' => $leaveRequest->leaveType ? [
+                    'id' => $leaveRequest->leaveType->id,
+                    'name' => $leaveRequest->leaveType->name,
+                    'color' => $leaveRequest->leaveType->color ?? '#4f6ef7',
+                ] : null,
+            ];
+        });
 
         return response()->json([
             'requests' => $requests,
-            'summary' => $summary,
-            'leave_types' => LeaveType::where('status', 'Active')->get(['id', 'name', 'color', 'days_allowed']),
-            'departments' => \App\Models\HR\Department::pluck('name'),
+            'stats' => $this->getStats(),
+            'filters' => [
+                'departments' => Department::active()->orderBy('name')->pluck('name'),
+                'leave_types' => LeaveType::active()->orderBy('name')->pluck('name'),
+            ],
         ]);
     }
 
@@ -61,12 +104,10 @@ class LeaveRequestController extends Controller
         $validated = $request->validate([
             'employee_id' => 'required|exists:employees,id',
             'leave_type_id' => 'required|exists:leave_types,id',
-            'from_date' => 'required|date',
+            'from_date' => 'required|date|after_or_equal:today',
             'to_date' => 'required|date|after_or_equal:from_date',
-            'reason' => 'nullable|string',
+            'reason' => 'nullable|string|max:500',
         ]);
-
-        $days = $this->businessDays($validated['from_date'], $validated['to_date']);
 
         $overlap = LeaveRequest::where('employee_id', $validated['employee_id'])
             ->whereIn('status', ['Pending', 'Approved'])
@@ -77,21 +118,25 @@ class LeaveRequestController extends Controller
                         $inner->where('from_date', '<=', $validated['from_date'])
                             ->where('to_date', '>=', $validated['to_date']);
                     });
-            })->exists();
+            })
+            ->exists();
 
         if ($overlap) {
             return response()->json([
-                'message' => 'Employee already has a leave request for this date range.'
+                'message' => 'Employee already has a leave request overlapping these dates.',
             ], 422);
         }
 
-        $leaveRequest = LeaveRequest::create([
+        $leave = LeaveRequest::create([
             ...$validated,
-            'days_requested' => $days,
+            'days_requested' => LeaveRequest::calculateDays($validated['from_date'], $validated['to_date']),
             'status' => 'Pending',
         ]);
 
-        return response()->json(['request' => $leaveRequest], 201);
+        return response()->json([
+            'leave' => $leave->load(['employee', 'leaveType']),
+            'message' => 'Leave request submitted.',
+        ], 201);
     }
 
     public function update(Request $request, int $id)
@@ -103,10 +148,8 @@ class LeaveRequestController extends Controller
             'leave_type_id' => 'required|exists:leave_types,id',
             'from_date' => 'required|date',
             'to_date' => 'required|date|after_or_equal:from_date',
-            'reason' => 'nullable|string',
+            'reason' => 'nullable|string|max:500',
         ]);
-
-        $days = $this->businessDays($validated['from_date'], $validated['to_date']);
 
         $overlap = LeaveRequest::where('employee_id', $validated['employee_id'])
             ->where('id', '!=', $leaveRequest->id)
@@ -118,146 +161,200 @@ class LeaveRequestController extends Controller
                         $inner->where('from_date', '<=', $validated['from_date'])
                             ->where('to_date', '>=', $validated['to_date']);
                     });
-            })->exists();
+            })
+            ->exists();
 
         if ($overlap) {
             return response()->json([
-                'message' => 'Employee already has a leave request for this date range.'
+                'message' => 'Employee already has a leave request overlapping these dates.',
             ], 422);
         }
 
         $leaveRequest->update([
             ...$validated,
-            'days_requested' => $days,
+            'days_requested' => LeaveRequest::calculateDays($validated['from_date'], $validated['to_date']),
         ]);
 
-        return response()->json(['request' => $leaveRequest]);
+        return response()->json([
+            'leave' => $leaveRequest->fresh()->load(['employee', 'leaveType']),
+            'message' => 'Leave request updated.',
+        ]);
     }
 
     public function approve(int $id)
     {
-        $leave = LeaveRequest::findOrFail($id);
+        $leave = LeaveRequest::with('employee')->findOrFail($id);
+
         if ($leave->status !== 'Pending') {
             return response()->json([
-                'message' => 'Only pending requests can be approved.'
+                'message' => 'Only pending requests can be approved.',
             ], 422);
         }
 
-        $approverId = auth()->id();
-        $approver = $approverId ? Employee::find($approverId) : null;
-
         $leave->update([
             'status' => 'Approved',
-            'approved_by' => $approver?->id,
+            'approved_by' => $this->currentEmployeeId(),
+            'rejected_by' => null,
+            'rejection_reason' => null,
             'approved_at' => now(),
         ]);
 
-        return response()->json(['message' => 'Leave request approved.']);
+        return response()->json([
+            'message' => 'Leave approved for ' . ($leave->employee?->first_name ?? 'employee') . '.',
+        ]);
     }
 
     public function reject(Request $request, int $id)
     {
-        $leave = LeaveRequest::findOrFail($id);
+        $leave = LeaveRequest::with('employee')->findOrFail($id);
+
+        if (! in_array($leave->status, ['Pending', 'Approved'], true)) {
+            return response()->json([
+                'message' => 'This request cannot be rejected.',
+            ], 422);
+        }
 
         $validated = $request->validate([
-            'rejection_reason' => 'required|string'
+            'reason' => 'nullable|string|max:500',
         ]);
-
-        $approverId = auth()->id();
-        $approver = $approverId ? Employee::find($approverId) : null;
 
         $leave->update([
             'status' => 'Rejected',
-            'rejection_reason' => $validated['rejection_reason'],
-            'approved_by' => $approver?->id,
-            'approved_at' => now(),
+            'rejected_by' => $this->currentEmployeeId(),
+            'rejection_reason' => $validated['reason'] ?? null,
         ]);
 
-        return response()->json(['message' => 'Leave request rejected.']);
+        return response()->json([
+            'message' => 'Leave request rejected.',
+        ]);
     }
 
     public function cancel(int $id)
     {
         $leave = LeaveRequest::findOrFail($id);
-        if (!in_array($leave->status, ['Pending', 'Approved'], true)) {
+
+        if (! in_array($leave->status, ['Pending', 'Approved'], true)) {
             return response()->json([
-                'message' => 'This request cannot be cancelled.'
+                'message' => 'This request cannot be cancelled.',
+            ], 422);
+        }
+
+        if (! Carbon::parse($leave->from_date)->isFuture()) {
+            return response()->json([
+                'message' => 'Only future leave requests can be cancelled.',
             ], 422);
         }
 
         $leave->update(['status' => 'Cancelled']);
-        return response()->json(['message' => 'Leave request cancelled.']);
+
+        return response()->json([
+            'message' => 'Leave request cancelled.',
+        ]);
     }
 
     public function destroy(int $id)
     {
-        LeaveRequest::findOrFail($id)->delete();
-        return response()->json(['message' => 'Record deleted.']);
+        $leave = LeaveRequest::findOrFail($id);
+
+        if ($leave->status === 'Approved') {
+            return response()->json([
+                'message' => 'Cannot delete an approved leave request. Cancel it first.',
+            ], 422);
+        }
+
+        $leave->delete();
+
+        return response()->json([
+            'message' => 'Leave request deleted.',
+        ]);
     }
 
     public function balances(Request $request)
     {
         $year = (int) ($request->year ?? now()->year);
 
-        $employees = Employee::with([
-            'department',
-            'leaveRequests' => fn ($q) =>
-                $q->where('status', 'Approved')
+        $employees = Employee::with('department')
+            ->where('employment_status', '!=', 'Inactive')
+            ->when($request->search, fn ($q) =>
+                $q->where(function ($employeeQuery) use ($request) {
+                    $employeeQuery->where('first_name', 'like', '%' . $request->search . '%')
+                        ->orWhere('last_name', 'like', '%' . $request->search . '%')
+                        ->orWhere('employee_id', 'like', '%' . $request->search . '%');
+                })
+            )
+            ->when($request->department, fn ($q) =>
+                $q->whereHas('department', fn ($departmentQuery) =>
+                    $departmentQuery->where('name', $request->department)
+                )
+            )
+            ->orderBy('first_name')
+            ->paginate((int) ($request->per_page ?? 10));
+
+        $leaveTypes = LeaveType::active()->orderBy('name')->get();
+
+        $employees->through(function (Employee $employee) use ($leaveTypes, $year) {
+            $balances = $leaveTypes->map(function (LeaveType $leaveType) use ($employee, $year) {
+                $used = LeaveRequest::where('employee_id', $employee->id)
+                    ->where('leave_type_id', $leaveType->id)
+                    ->where('status', 'Approved')
                     ->whereYear('from_date', $year)
-                    ->with('leaveType')
-        ])->where('employment_status', 'Active')->get();
+                    ->sum('days_requested');
 
-        $leaveTypes = LeaveType::where('status', 'Active')->get();
-
-        $balances = $employees->map(function ($employee) use ($leaveTypes) {
-            $usedByType = $employee->leaveRequests
-                ->groupBy('leave_type_id')
-                ->map(fn ($reqs) => $reqs->sum('days_requested'));
-
-            $perType = $leaveTypes->map(function ($type) use ($usedByType) {
-                $used = (int) ($usedByType[$type->id] ?? 0);
-                $remaining = max(0, (int) $type->days_allowed - $used);
                 return [
-                    'leave_type_id' => $type->id,
-                    'name' => $type->name,
-                    'color' => $type->color,
-                    'allowed' => (int) $type->days_allowed,
-                    'used' => $used,
-                    'remaining' => $remaining,
+                    'leave_type_id' => $leaveType->id,
+                    'name' => $leaveType->name,
+                    'color' => $leaveType->color ?? '#4f6ef7',
+                    'allowed' => (int) $leaveType->days_allowed,
+                    'used' => (int) $used,
+                    'remaining' => max(0, (int) $leaveType->days_allowed - (int) $used),
                 ];
             })->values();
 
             return [
-                'employee' => [
-                    'id' => $employee->id,
-                    'full_name' => trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')),
-                    'avatar_url' => $employee->avatar_url,
-                    'department' => $employee->department?->name,
-                ],
-                'balances' => $perType,
+                'id' => $employee->id,
+                'name' => $employee->full_name,
+                'employee_id' => $employee->employee_id,
+                'avatar' => $employee->avatar_url,
+                'initials' => $employee->initials,
+                'department' => $employee->department?->name ?? '-',
+                'balances' => $balances,
             ];
-        })->values();
+        });
 
         return response()->json([
-            'balances' => $balances,
-            'leave_types' => $leaveTypes,
+            'employees' => $employees,
+            'leave_types' => $leaveTypes->map(fn (LeaveType $leaveType) => [
+                'id' => $leaveType->id,
+                'name' => $leaveType->name,
+                'color' => $leaveType->color ?? '#4f6ef7',
+            ]),
         ]);
     }
 
-    private function businessDays(string $fromDate, string $toDate): int
+    private function getStats(): array
     {
-        $from = Carbon::parse($fromDate);
-        $to = Carbon::parse($toDate);
+        return [
+            'pending' => LeaveRequest::where('status', 'Pending')->count(),
+            'approved' => LeaveRequest::where('status', 'Approved')->count(),
+            'rejected' => LeaveRequest::where('status', 'Rejected')->count(),
+            'on_leave_today' => LeaveRequest::where('status', 'Approved')
+                ->whereDate('from_date', '<=', now())
+                ->whereDate('to_date', '>=', now())
+                ->count(),
+        ];
+    }
 
-        $days = 0;
-        $current = $from->copy();
-        while ($current->lte($to)) {
-            if (!$current->isWeekend()) {
-                $days++;
-            }
-            $current->addDay();
+    private function currentEmployeeId(): ?int
+    {
+        $user = auth()->user();
+
+        if (! $user) {
+            return null;
         }
 
-        return $days;
+        return Employee::query()
+            ->where('work_email', $user->email)
+            ->orWhere('personal_email', $user->email)
+            ->value('id');
     }
 }

@@ -4,20 +4,24 @@ import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
 
+interface DepartmentRef {
+  id: number;
+  name: string;
+}
+
 interface DesignationItem {
   id: number;
   name: string;
-  department?: { id: number; name: string } | null;
+  initials: string;
+  department: DepartmentRef | null;
   level: string | null;
+  level_color: string;
   description: string | null;
-  status: string;
-  employees_count: number;
+  status: 'Active' | 'Inactive';
+  employee_count: number;
+  min_salary: string | number | null;
+  max_salary: string | number | null;
   created_at: string;
-}
-
-interface DepartmentOption {
-  id: number;
-  name: string;
 }
 
 const breadcrumbs = [
@@ -25,76 +29,18 @@ const breadcrumbs = [
   { title: 'Designations', disabled: true, href: '#' }
 ];
 
-const levelValues = ['Junior', 'Mid-level', 'Senior', 'Lead', 'Manager', 'Director', 'C-Level'];
-
 const loading = ref(true);
 const saving = ref(false);
-
+const deleting = ref(false);
+const drawer = ref(false);
+const deleteDialog = ref(false);
+const editingDesig = ref<DesignationItem | null>(null);
+const deletingDesig = ref<DesignationItem | null>(null);
 const designations = ref<DesignationItem[]>([]);
-const departmentFilterNames = ref<string[]>([]);
-const departmentOptions = ref<DepartmentOption[]>([]);
-
-const dummyDepartmentOptions: DepartmentOption[] = [
-  { id: 1, name: 'Human Resources' },
-  { id: 2, name: 'Engineering' },
-  { id: 3, name: 'Finance' },
-  { id: 4, name: 'Sales' },
-  { id: 5, name: 'Marketing' },
-  { id: 6, name: 'Operations' }
-];
-
-const dummyDesignations: DesignationItem[] = [
-  {
-    id: 1,
-    name: 'HR Manager',
-    department: { id: 1, name: 'Human Resources' },
-    level: 'Manager',
-    description: 'Leads HR team and operations.',
-    status: 'Active',
-    employees_count: 3,
-    created_at: '2026-01-10'
-  },
-  {
-    id: 2,
-    name: 'Software Engineer',
-    department: { id: 2, name: 'Engineering' },
-    level: 'Mid-level',
-    description: 'Builds and maintains product features.',
-    status: 'Active',
-    employees_count: 18,
-    created_at: '2026-01-12'
-  },
-  {
-    id: 3,
-    name: 'Finance Officer',
-    department: { id: 3, name: 'Finance' },
-    level: 'Mid-level',
-    description: 'Supports finance and compliance processes.',
-    status: 'Active',
-    employees_count: 4,
-    created_at: '2026-01-15'
-  },
-  {
-    id: 4,
-    name: 'Sales Executive',
-    department: { id: 4, name: 'Sales' },
-    level: 'Junior',
-    description: 'Owns customer pipeline and outreach.',
-    status: 'Inactive',
-    employees_count: 0,
-    created_at: '2026-01-20'
-  },
-  {
-    id: 5,
-    name: 'Chief Executive',
-    department: { id: 6, name: 'Operations' },
-    level: 'C-Level',
-    description: 'Exec leadership and strategy owner.',
-    status: 'Active',
-    employees_count: 1,
-    created_at: '2026-01-22'
-  }
-];
+const departmentOptions = ref<string[]>([]);
+const levelOptions = ref<string[]>([]);
+const allDepartments = ref<DepartmentRef[]>([]);
+const lastTableOptionsKey = ref('');
 
 const stats = ref({
   total: 0,
@@ -102,101 +48,145 @@ const stats = ref({
   unassigned: 0
 });
 
-const pagination = reactive({ page: 1, perPage: 10, total: 0 });
+const pagination = reactive({
+  page: 1,
+  perPage: 10,
+  total: 0
+});
+
 const filters = reactive({
   search: '',
   department: '',
   level: '',
   status: ''
 });
-const sort = reactive({ sortBy: 'created_at', sortDir: 'desc' });
 
-const drawerOpen = ref(false);
-const editingId = ref<number | null>(null);
+const sort = reactive({
+  sortBy: 'name',
+  sortDir: 'asc'
+});
+
 const form = reactive({
   name: '',
   department_id: null as number | null,
-  level: '' as string | '',
+  level: null as string | null,
   description: '',
+  min_salary: null as number | null,
+  max_salary: null as number | null,
   status: 'Active'
 });
-const fieldErrors = reactive({
-  name: ''
-});
 
-const confirmDialog = ref({
+const errors = ref<Record<string, string[]>>({});
+const snackbar = ref({
   show: false,
-  id: null as number | null,
-  name: ''
+  message: '',
+  color: 'success'
 });
 
-const snackbar = ref({ show: false, message: '', color: 'success' });
-
-const headers = [
-  { title: 'Designation Name', key: 'name', sortable: true },
-  { title: 'Department', key: 'department', sortable: false },
-  { title: 'Level', key: 'level', sortable: true },
-  { title: 'Total Employees', key: 'employees_count', sortable: true },
-  { title: 'Status', key: 'status', sortable: false },
-  { title: 'Created Date', key: 'created_at', sortable: true },
-  { title: 'Actions', key: 'actions', sortable: false }
-];
-
-const perPageOptions = [10, 25, 50];
 const statusOptions = [
   { title: 'All', value: '' },
   { title: 'Active', value: 'Active' },
   { title: 'Inactive', value: 'Inactive' }
 ];
-const levelFilterOptions = computed(() => [{ title: 'All Levels', value: '' }, ...levelValues.map((level) => ({ title: level, value: level }))]);
-const departmentFilterOptions = computed(() => [{ title: 'All Departments', value: '' }, ...departmentFilterNames.value.map((name) => ({ title: name, value: name }))]);
-const drawerDepartmentOptions = computed(() => departmentOptions.value.map((item) => ({ title: item.name, value: item.id })));
-const drawerLevelOptions = computed(() => levelValues.map((level) => ({ title: level, value: level })));
+
+const levelValues = ['Junior', 'Mid-level', 'Senior', 'Lead', 'Manager', 'Director', 'C-Level'];
+const perPageOptions = [10, 25, 50];
+const showSalaryColumn = true;
+
+const headers = computed(() => {
+  const base = [
+    { title: 'Designation Name', key: 'name', sortable: true },
+    { title: 'Department', key: 'department', sortable: false },
+    { title: 'Level', key: 'level', sortable: true },
+    { title: 'Employee Count', key: 'employee_count', sortable: true },
+  ];
+
+  if (showSalaryColumn) {
+    base.push({ title: 'Salary Range', key: 'salary_range', sortable: false });
+  }
+
+  base.push(
+    { title: 'Status', key: 'status', sortable: false },
+    { title: 'Created Date', key: 'created_at', sortable: true },
+    { title: 'Actions', key: 'actions', sortable: false }
+  );
+
+  return base;
+});
+
+const filterDepartmentItems = computed(() => [
+  { title: 'All Departments', value: '' },
+  ...departmentOptions.value.map((department) => ({
+    title: department,
+    value: department
+  }))
+]);
+
+const filterLevelItems = computed(() => [
+  { title: 'All Levels', value: '' },
+  ...levelOptions.value.map((level) => ({
+    title: level,
+    value: level
+  }))
+]);
 
 function rowData(item: any): DesignationItem {
   return (item?.raw ?? item) as DesignationItem;
 }
 
-function levelColor(level: string | null) {
-  if (!level) return 'secondary';
-  if (level === 'Junior') return 'primary';
-  if (level === 'Mid-level') return 'teal';
-  if (level === 'Senior') return 'success';
-  if (level === 'Lead') return 'warning';
-  if (level === 'Manager') return 'purple';
-  if (level === 'Director') return 'error';
-  if (level === 'C-Level') return 'grey-darken-4';
-  return 'secondary';
+function resetForm() {
+  errors.value = {};
+  form.name = '';
+  form.department_id = null;
+  form.level = null;
+  form.description = '';
+  form.min_salary = null;
+  form.max_salary = null;
+  form.status = 'Active';
 }
 
-function statusColor(status: string) {
-  return status === 'Active' ? 'success' : 'secondary';
+function openCreateDrawer() {
+  editingDesig.value = null;
+  resetForm();
+  drawer.value = true;
 }
 
-function initials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
+function openEditDrawer(desig: DesignationItem) {
+  editingDesig.value = desig;
+  errors.value = {};
+  form.name = desig.name;
+  form.department_id = desig.department?.id ?? null;
+  form.level = desig.level;
+  form.description = desig.description ?? '';
+  form.min_salary = desig.min_salary ? Number(desig.min_salary) : null;
+  form.max_salary = desig.max_salary ? Number(desig.max_salary) : null;
+  form.status = desig.status;
+  drawer.value = true;
 }
 
-function clearFieldErrors() {
-  fieldErrors.name = '';
+function askDelete(desig: DesignationItem) {
+  deletingDesig.value = desig;
+  deleteDialog.value = true;
 }
 
-async function fetchDepartmentOptions() {
+function resetFilters() {
+  filters.search = '';
+  filters.department = '';
+  filters.level = '';
+  filters.status = '';
+}
+
+async function fetchDepartmentSelectOptions() {
   try {
-    const { data } = await axios.get('/api/hr/departments', { params: { per_page: 200 } });
-    const list = data?.departments?.data ?? [];
-    departmentOptions.value = list.map((item: any) => ({ id: item.id, name: item.name }));
-    if (!departmentOptions.value.length) {
-      departmentOptions.value = dummyDepartmentOptions;
-    }
-  } catch (error) {
-    departmentOptions.value = dummyDepartmentOptions;
+    const { data } = await axios.get('/api/hr/departments', {
+      params: { per_page: 200 }
+    });
+    allDepartments.value = data?.departments?.data?.map((department: any) => ({
+      id: department.id,
+      name: department.name
+    })) ?? [];
+  } catch (_error) {
+    allDepartments.value = [];
   }
 }
 
@@ -212,169 +202,148 @@ async function fetchDesignations() {
         page: pagination.page,
         per_page: pagination.perPage,
         sort_by: sort.sortBy,
-        sort_dir: sort.sortDir
+        sort_dir: sort.sortDir,
       }
     });
 
-    designations.value = data?.designations?.data ?? [];
-    pagination.total = data?.designations?.total ?? 0;
-
-    const apiDeptNames: string[] = data?.departments ?? [];
-    departmentFilterNames.value = apiDeptNames.length
-      ? apiDeptNames
-      : Array.from(new Set(dummyDesignations.map((item) => item.department?.name).filter(Boolean) as string[]));
-
-    if (!designations.value.length) {
-      designations.value = dummyDesignations;
-      pagination.total = dummyDesignations.length;
-      if (!departmentFilterNames.value.length) {
-        departmentFilterNames.value = Array.from(new Set(dummyDesignations.map((item) => item.department?.name).filter(Boolean) as string[]));
-      }
-    }
-  } catch (error) {
-    designations.value = dummyDesignations;
-    pagination.total = dummyDesignations.length;
-    departmentFilterNames.value = Array.from(new Set(dummyDesignations.map((item) => item.department?.name).filter(Boolean) as string[]));
-    snackbar.value = { show: true, message: 'Using dummy designation data.', color: 'warning' };
+    designations.value = data.designations?.data ?? [];
+    pagination.total = data.designations?.total ?? 0;
+    stats.value.total = data.stats?.total ?? 0;
+    stats.value.active = data.stats?.active ?? 0;
+    stats.value.unassigned = data.stats?.unassigned ?? 0;
+    departmentOptions.value = data.filters?.departments ?? [];
+    levelOptions.value = data.filters?.levels ?? [];
+  } catch (_error) {
+    designations.value = [];
+    pagination.total = 0;
+    snackbar.value = {
+      show: true,
+      message: 'Failed to load designations.',
+      color: 'error'
+    };
   } finally {
     loading.value = false;
   }
 }
 
-async function fetchStats() {
-  try {
-    const { data } = await axios.get('/api/hr/designations', { params: { per_page: 999 } });
-    const list = data?.designations?.data ?? [];
-    const source: DesignationItem[] = list.length ? list : dummyDesignations;
-
-    stats.value = {
-      total: source.length,
-      active: source.filter((item) => item.status === 'Active').length,
-      unassigned: source.filter((item) => (item.employees_count ?? 0) === 0).length
-    };
-  } catch (error) {
-    stats.value = {
-      total: dummyDesignations.length,
-      active: dummyDesignations.filter((item) => item.status === 'Active').length,
-      unassigned: dummyDesignations.filter((item) => item.employees_count === 0).length
-    };
-  }
-}
-
-function resetForm() {
-  clearFieldErrors();
-  form.name = '';
-  form.department_id = null;
-  form.level = '';
-  form.description = '';
-  form.status = 'Active';
-}
-
-function openCreateDrawer() {
-  editingId.value = null;
-  resetForm();
-  drawerOpen.value = true;
-}
-
-function openEditDrawer(item: DesignationItem) {
-  editingId.value = item.id;
-  clearFieldErrors();
-  form.name = item.name;
-  form.department_id = item.department?.id ?? null;
-  form.level = item.level ?? '';
-  form.description = item.description ?? '';
-  form.status = item.status;
-  drawerOpen.value = true;
-}
-
-function openDeleteDialog(item: DesignationItem) {
-  confirmDialog.value = { show: true, id: item.id, name: item.name };
-}
-
 async function saveDesignation() {
-  clearFieldErrors();
-
-  if (!form.name.trim()) {
-    fieldErrors.name = 'Designation name is required.';
-    return;
-  }
-
   saving.value = true;
+  errors.value = {};
   try {
     const payload = {
-      name: form.name.trim(),
-      department_id: form.department_id,
-      level: form.level || null,
+      ...form,
       description: form.description || null,
-      status: form.status
+      level: form.level || null,
+      min_salary: form.min_salary ?? null,
+      max_salary: form.max_salary ?? null
     };
 
-    if (editingId.value) {
-      await axios.put(`/api/hr/designations/${editingId.value}`, payload);
-      snackbar.value = { show: true, message: 'Designation updated successfully.', color: 'success' };
+    if (editingDesig.value) {
+      const { data } = await axios.put(`/api/hr/designations/${editingDesig.value.id}`, payload);
+      snackbar.value = {
+        show: true,
+        message: data.message,
+        color: 'success'
+      };
     } else {
-      await axios.post('/api/hr/designations', payload);
-      snackbar.value = { show: true, message: 'Designation created successfully.', color: 'success' };
+      const { data } = await axios.post('/api/hr/designations', payload);
+      snackbar.value = {
+        show: true,
+        message: data.message,
+        color: 'success'
+      };
     }
 
-    drawerOpen.value = false;
-    await Promise.all([fetchDesignations(), fetchStats()]);
-  } catch (error: any) {
-    const apiErrors = error?.response?.data?.errors;
-    if (apiErrors?.name?.length) {
-      fieldErrors.name = apiErrors.name[0];
+    drawer.value = false;
+    await fetchDesignations();
+  } catch (err: any) {
+    if (err?.response?.status === 422) {
+      errors.value = err.response.data.errors ?? {};
+      snackbar.value = {
+        show: true,
+        message: 'Please fix the errors.',
+        color: 'error'
+      };
+    } else {
+      snackbar.value = {
+        show: true,
+        message: err?.response?.data?.message ?? 'Failed to save designation.',
+        color: 'error'
+      };
     }
-
-    snackbar.value = {
-      show: true,
-      message: error?.response?.data?.message ?? 'Failed to save designation.',
-      color: 'error'
-    };
   } finally {
     saving.value = false;
   }
 }
 
-async function deleteDesignation() {
-  if (!confirmDialog.value.id) return;
+async function confirmDelete() {
+  if (!deletingDesig.value) return;
 
+  deleting.value = true;
   try {
-    await axios.delete(`/api/hr/designations/${confirmDialog.value.id}`);
-    snackbar.value = { show: true, message: 'Designation deleted.', color: 'success' };
-    confirmDialog.value.show = false;
-    await Promise.all([fetchDesignations(), fetchStats()]);
-  } catch (error: any) {
+    await axios.delete(`/api/hr/designations/${deletingDesig.value.id}`);
     snackbar.value = {
       show: true,
-      message: error?.response?.data?.message ?? 'Cannot delete a designation assigned to employees.',
+      message: 'Designation deleted.',
+      color: 'success'
+    };
+    deleteDialog.value = false;
+    await fetchDesignations();
+  } catch (err: any) {
+    snackbar.value = {
+      show: true,
+      message: err?.response?.data?.message ?? 'Failed to delete.',
+      color: 'error'
+    };
+    deleteDialog.value = false;
+  } finally {
+    deleting.value = false;
+  }
+}
+
+async function toggleStatus(desig: DesignationItem) {
+  const newStatus = desig.status === 'Active' ? 'Inactive' : 'Active';
+  try {
+    await axios.patch(`/api/hr/designations/${desig.id}/status`, { status: newStatus });
+    snackbar.value = {
+      show: true,
+      message: `${desig.name} set to ${newStatus}`,
+      color: 'success'
+    };
+    await fetchDesignations();
+  } catch (_error) {
+    snackbar.value = {
+      show: true,
+      message: 'Failed to update status.',
       color: 'error'
     };
   }
 }
 
-function viewEmployees(item: DesignationItem) {
-  router.visit(`/hr/employees?designation=${encodeURIComponent(item.name)}`);
-}
-
-function resetFilters() {
-  filters.search = '';
-  filters.department = '';
-  filters.level = '';
-  filters.status = '';
+function viewEmployees(desig: DesignationItem) {
+  router.visit(`/hr/employees?designation=${encodeURIComponent(desig.name)}`);
 }
 
 function handleTableOptions(options: any) {
-  pagination.page = options.page;
-  pagination.perPage = options.itemsPerPage;
+  const nextSortBy = options.sortBy?.length ? options.sortBy[0].key : 'name';
+  const nextSortDir = options.sortBy?.length ? (options.sortBy[0].order ?? 'asc') : 'asc';
 
-  if (options.sortBy?.length) {
-    sort.sortBy = options.sortBy[0].key;
-    sort.sortDir = options.sortBy[0].order ?? 'asc';
-  } else {
-    sort.sortBy = 'created_at';
-    sort.sortDir = 'desc';
+  const nextKey = JSON.stringify({
+    page: options.page,
+    perPage: options.itemsPerPage,
+    sortBy: nextSortBy,
+    sortDir: nextSortDir
+  });
+
+  if (lastTableOptionsKey.value === nextKey) {
+    return;
   }
 
+  lastTableOptionsKey.value = nextKey;
+  pagination.page = options.page;
+  pagination.perPage = options.itemsPerPage;
+  sort.sortBy = nextSortBy === 'salary_range' ? 'name' : nextSortBy;
+  sort.sortDir = nextSortDir;
   fetchDesignations();
 }
 
@@ -387,7 +356,8 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([fetchDepartmentOptions(), fetchDesignations(), fetchStats()]);
+  await fetchDepartmentSelectOptions();
+  await fetchDesignations();
 });
 </script>
 
@@ -404,25 +374,41 @@ onMounted(async () => {
 
   <v-row class="mb-0">
     <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Total Designations: <strong>{{ stats.total }}</strong></v-card-text></v-card>
+      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
+        <v-card-text>Total Designations: <strong>{{ stats.total }}</strong></v-card-text>
+      </v-card>
     </v-col>
     <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Active Designations: <strong>{{ stats.active }}</strong></v-card-text></v-card>
+      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
+        <v-card-text>Active Designations: <strong>{{ stats.active }}</strong></v-card-text>
+      </v-card>
     </v-col>
     <v-col cols="12" sm="6" md="4">
-      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Unassigned Designations: <strong>{{ stats.unassigned }}</strong></v-card-text></v-card>
+      <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
+        <v-card-text>Unassigned Designations: <strong>{{ stats.unassigned }}</strong></v-card-text>
+      </v-card>
     </v-col>
   </v-row>
 
   <v-card class="bg-surface rounded-lg hr-card-shadow mb-4" variant="outlined" elevation="0">
     <v-card-text>
       <v-row>
-        <v-col cols="12" md="4"><v-text-field v-model="filters.search" placeholder="Search by designation name..." variant="outlined" hide-details /></v-col>
-        <v-col cols="12" sm="6" md="3"><v-select v-model="filters.department" :items="departmentFilterOptions" label="Department" variant="outlined" hide-details /></v-col>
-        <v-col cols="12" sm="6" md="3"><v-select v-model="filters.level" :items="levelFilterOptions" label="Level" variant="outlined" hide-details /></v-col>
-        <v-col cols="12" sm="6" md="2"><v-select v-model="filters.status" :items="statusOptions" label="Status" variant="outlined" hide-details /></v-col>
+        <v-col cols="12" md="4">
+          <v-text-field v-model="filters.search" placeholder="Search designations..." variant="outlined" hide-details />
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <v-select v-model="filters.department" :items="filterDepartmentItems" label="Department" variant="outlined" hide-details />
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <v-select v-model="filters.level" :items="filterLevelItems" label="Level" variant="outlined" hide-details />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-select v-model="filters.status" :items="statusOptions" label="Status" variant="outlined" hide-details />
+        </v-col>
       </v-row>
-      <div class="d-flex justify-end mt-2"><v-btn variant="text" color="primary" @click="resetFilters">Reset Filters</v-btn></div>
+      <div class="d-flex justify-end mt-2">
+        <v-btn variant="text" color="primary" @click="resetFilters">Reset Filters</v-btn>
+      </div>
     </v-card-text>
   </v-card>
 
@@ -451,39 +437,73 @@ onMounted(async () => {
       >
         <template #item.name="{ item }">
           <div class="d-flex align-center ga-3">
-            <v-avatar color="primary" variant="tonal" size="34">{{ initials(rowData(item).name) }}</v-avatar>
-            <div class="d-flex align-center ga-2 flex-wrap">
-              <span class="font-weight-medium">{{ rowData(item).name }}</span>
-              <v-chip v-if="rowData(item).level" size="x-small" :color="levelColor(rowData(item).level)" variant="tonal">{{ rowData(item).level }}</v-chip>
+            <v-avatar size="36" color="primary" variant="tonal">
+              <span class="text-caption font-weight-bold">{{ rowData(item).initials }}</span>
+            </v-avatar>
+            <div>
+              <span class="font-weight-medium mr-2">{{ rowData(item).name }}</span>
+              <v-chip v-if="rowData(item).level" size="x-small" :color="rowData(item).level_color" variant="tonal">
+                {{ rowData(item).level }}
+              </v-chip>
             </div>
           </div>
         </template>
 
         <template #item.department="{ item }">
-          <v-chip size="small" :color="rowData(item).department ? 'primary' : 'secondary'" variant="tonal">{{ rowData(item).department?.name ?? 'Not Assigned' }}</v-chip>
+          <v-chip v-if="rowData(item).department" size="small" variant="tonal" color="primary">
+            {{ rowData(item).department?.name }}
+          </v-chip>
+          <span v-else class="text-medium-emphasis text-body-2">Not Assigned</span>
         </template>
 
         <template #item.level="{ item }">
-          <v-chip size="small" :color="levelColor(rowData(item).level)" variant="tonal">{{ rowData(item).level ?? '-' }}</v-chip>
+          <v-chip v-if="rowData(item).level" size="small" variant="tonal" :color="rowData(item).level_color">
+            {{ rowData(item).level }}
+          </v-chip>
+          <span v-else class="text-medium-emphasis">—</span>
         </template>
 
-        <template #item.employees_count="{ item }">
-          <v-chip size="small" color="secondary" variant="tonal" class="cursor-pointer" @click="viewEmployees(rowData(item))">{{ rowData(item).employees_count }}</v-chip>
+        <template #item.employee_count="{ item }">
+          <v-chip size="small" :color="rowData(item).employee_count > 0 ? 'primary' : 'default'" variant="tonal">
+            {{ rowData(item).employee_count }}
+          </v-chip>
+        </template>
+
+        <template v-if="showSalaryColumn" #item.salary_range="{ item }">
+          <span v-if="rowData(item).min_salary" class="text-body-2">
+            GHS {{ Number(rowData(item).min_salary).toLocaleString() }} –
+            {{ Number(rowData(item).max_salary).toLocaleString() }}
+          </span>
+          <span v-else class="text-medium-emphasis">—</span>
         </template>
 
         <template #item.status="{ item }">
-          <v-chip size="small" :color="statusColor(rowData(item).status)" variant="tonal">{{ rowData(item).status }}</v-chip>
+          <v-chip size="small" :color="rowData(item).status === 'Active' ? 'success' : 'default'" variant="tonal">
+            {{ rowData(item).status }}
+          </v-chip>
         </template>
 
-        <template #item.created_at="{ item }">{{ new Date(rowData(item).created_at).toLocaleDateString() }}</template>
+        <template #item.created_at="{ item }">
+          <span class="text-body-2 text-medium-emphasis">{{ rowData(item).created_at }}</span>
+        </template>
 
         <template #item.actions="{ item }">
           <v-menu>
-            <template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template>
-            <v-list>
-              <v-list-item title="Edit Designation" @click="openEditDrawer(rowData(item))" />
-              <v-list-item title="View Employees" @click="viewEmployees(rowData(item))" />
-              <v-list-item title="Delete" base-color="error" @click="openDeleteDialog(rowData(item))" />
+            <template #activator="{ props }">
+              <v-btn v-bind="props" icon variant="text" size="small">
+                <v-icon>mdi-dots-vertical</v-icon>
+              </v-btn>
+            </template>
+            <v-list density="compact">
+              <v-list-item prepend-icon="mdi-pencil" title="Edit" @click="openEditDrawer(rowData(item))" />
+              <v-list-item
+                :prepend-icon="rowData(item).status === 'Active' ? 'mdi-pause-circle' : 'mdi-play-circle'"
+                :title="rowData(item).status === 'Active' ? 'Deactivate' : 'Activate'"
+                @click="toggleStatus(rowData(item))"
+              />
+              <v-list-item prepend-icon="mdi-account-group" title="View Employees" @click="viewEmployees(rowData(item))" />
+              <v-divider />
+              <v-list-item prepend-icon="mdi-delete" title="Delete" base-color="error" @click="askDelete(rowData(item))" />
             </v-list>
           </v-menu>
         </template>
@@ -491,39 +511,61 @@ onMounted(async () => {
     </v-card-text>
   </v-card>
 
-  <v-navigation-drawer v-model="drawerOpen" location="right" temporary width="480">
+  <v-navigation-drawer v-model="drawer" location="right" temporary width="480">
     <div class="pa-4 border-b d-flex justify-space-between align-center">
-      <h5 class="text-h5 mb-0">{{ editingId ? 'Edit Designation' : 'Add Designation' }}</h5>
-      <v-btn icon="mdi-close" variant="text" @click="drawerOpen = false" />
+      <h5 class="text-h5 mb-0">{{ editingDesig ? 'Edit Designation' : 'Add Designation' }}</h5>
+      <v-btn icon="mdi-close" variant="text" @click="drawer = false" />
     </div>
 
     <div class="pa-4 drawer-body">
-      <v-text-field v-model="form.name" label="Designation Name *" variant="outlined" :error-messages="fieldErrors.name ? [fieldErrors.name] : []" class="mb-3" />
-      <v-select v-model="form.department_id" :items="drawerDepartmentOptions" label="Department" variant="outlined" clearable class="mb-3" />
-      <v-select v-model="form.level" :items="drawerLevelOptions" label="Level" variant="outlined" clearable class="mb-3" />
-      <v-textarea v-model="form.description" label="Description" rows="3" variant="outlined" class="mb-3" />
-      <v-radio-group v-model="form.status" inline>
-        <v-radio label="Active" value="Active" />
-        <v-radio label="Inactive" value="Inactive" />
-      </v-radio-group>
+      <v-text-field v-model="form.name" label="Designation Name *" variant="outlined" :error-messages="errors.name?.[0]" class="mb-3" />
+      <v-select
+        v-model="form.department_id"
+        label="Department"
+        variant="outlined"
+        :items="allDepartments"
+        item-title="name"
+        item-value="id"
+        clearable
+        class="mb-3"
+        :error-messages="errors.department_id?.[0]"
+      />
+      <v-select
+        v-model="form.level"
+        label="Level"
+        variant="outlined"
+        :items="levelValues"
+        clearable
+        class="mb-3"
+      />
+      <v-textarea v-model="form.description" label="Description" variant="outlined" rows="3" class="mb-3" />
+      <v-row>
+        <v-col cols="6">
+          <v-text-field v-model="form.min_salary" label="Min Salary (GHS)" variant="outlined" type="number" :error-messages="errors.min_salary?.[0]" />
+        </v-col>
+        <v-col cols="6">
+          <v-text-field v-model="form.max_salary" label="Max Salary (GHS)" variant="outlined" type="number" :error-messages="errors.max_salary?.[0]" />
+        </v-col>
+      </v-row>
+      <v-select v-model="form.status" label="Status *" variant="outlined" :items="['Active', 'Inactive']" :error-messages="errors.status?.[0]" />
     </div>
 
     <div class="pa-4 border-t d-flex justify-end ga-2 sticky-footer">
-      <v-btn variant="outlined" @click="drawerOpen = false">Cancel</v-btn>
+      <v-btn variant="outlined" @click="drawer = false">Cancel</v-btn>
       <v-btn color="primary" variant="flat" :loading="saving" @click="saveDesignation">Save Designation</v-btn>
     </div>
   </v-navigation-drawer>
 
-  <v-dialog v-model="confirmDialog.show" max-width="420">
+  <v-dialog v-model="deleteDialog" max-width="420">
     <v-card>
       <v-card-title class="text-h5">Delete Designation</v-card-title>
       <v-card-text>
-        Are you sure you want to delete <strong>{{ confirmDialog.name }}</strong>? This cannot be undone.
+        Are you sure you want to delete <strong>{{ deletingDesig?.name }}</strong>? This cannot be undone.
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="confirmDialog.show = false">Cancel</v-btn>
-        <v-btn color="error" variant="flat" @click="deleteDesignation">Delete</v-btn>
+        <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
+        <v-btn color="error" variant="flat" :loading="deleting" @click="confirmDelete">Delete</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -534,10 +576,6 @@ onMounted(async () => {
 <style scoped>
 .hr-card-shadow {
   box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
-}
-
-.cursor-pointer {
-  cursor: pointer;
 }
 
 .drawer-body {

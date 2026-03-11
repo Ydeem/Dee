@@ -12,23 +12,23 @@ class OnboardingTask extends Model
     protected $table = 'onboarding_tasks';
 
     protected $fillable = [
+        'template_id',
         'onboarding_template_id',
         'title',
         'description',
         'category',
         'due_days',
-        'assigned_to_role',
+        'required',
         'is_required',
         'sort_order',
     ];
 
     protected $casts = [
-        'is_required' => 'boolean',
+        'required' => 'boolean',
     ];
 
     public function template()
     {
-        return $this->belongsTo(OnboardingTemplate::class, 'onboarding_template_id');
+        return $this->belongsTo(OnboardingTemplate::class, 'template_id');
     }
 }
-

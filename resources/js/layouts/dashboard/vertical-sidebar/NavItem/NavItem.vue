@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import SvgSprite from '@/components/shared/SvgSprite.vue';
+import { appUrl } from '@/utils/appUrl';
 
 const props = defineProps({ item: Object, level: Number });
 
@@ -15,7 +16,7 @@ const isInternal = computed(() => {
 const linkHref = computed(() => {
   if (props.item.getURL) return baseURL + props.item.to.replace(/^\//, '');
   if (props.item.type === 'external') return props.item.to;
-  return props.item.to;
+  return appUrl(props.item.to);
 });
 
 const isExternal = computed(() => props.item.getURL || props.item.type === 'external');

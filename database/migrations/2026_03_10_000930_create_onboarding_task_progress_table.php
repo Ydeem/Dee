@@ -14,9 +14,9 @@ return new class extends Migration
 
         Schema::create('onboarding_task_progress', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('employee_onboarding_id')->constrained('employee_onboardings')->cascadeOnDelete();
-            $table->foreignId('onboarding_task_id')->constrained('onboarding_tasks')->cascadeOnDelete();
-            $table->enum('status', ['Pending', 'In Progress', 'Completed', 'Skipped'])->default('Pending');
+            $table->foreignId('onboarding_id')->constrained('employee_onboardings')->cascadeOnDelete();
+            $table->foreignId('task_id')->constrained('onboarding_tasks')->cascadeOnDelete();
+            $table->string('status')->default('Pending');
             $table->timestamp('completed_at')->nullable();
             $table->foreignId('completed_by')->nullable()->constrained('employees')->nullOnDelete();
             $table->text('notes')->nullable();
@@ -29,4 +29,3 @@ return new class extends Migration
         Schema::dropIfExists('onboarding_task_progress');
     }
 };
-

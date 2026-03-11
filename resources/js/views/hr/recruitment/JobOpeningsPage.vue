@@ -1,151 +1,543 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
-import axios from 'axios';
-import { router } from '@inertiajs/vue3';
-import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import axios from 'axios'
+import { router } from '@inertiajs/vue3'
+import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue'
 
-interface JobOpening {
-  id: number; title: string; employment_type: string; location: string | null; vacancies: number;
-  salary_from: number | null; salary_to: number | null; salary_currency: string; status: string;
-  deadline: string | null; applicants_count: number; description: string | null; requirements: string | null;
-  benefits: string | null; experience_years: number | null; education_level: string | null; created_at: string;
-  department?: { id: number; name: string } | null; designation?: { id: number; name: string } | null; posted_by?: { full_name: string } | null;
+interface JobItem {
+  id: number
+  title: string
+  employment_type: string
+  vacancies: number
+  salary_range: string
+  min_salary: number | null
+  max_salary: number | null
+  location: string | null
+  description: string | null
+  requirements: string | null
+  responsibilities: string | null
+  benefits: string | null
+  status: string
+  status_color: string
+  is_expired: boolean
+  days_until_deadline: number | null
+  deadline: string | null
+  deadline_raw: string | null
+  created_at: string
+  applicants_count: number
+  department: { id: number; name: string } | null
+  designation: { id: number; name: string } | null
 }
-interface Summary { total_open: number; total_draft: number; total_closed: number; total_applicants: number; }
 
-const breadcrumbs = [{ title: 'HR Module', disabled: false, href: '#' }, { title: 'Recruitment', disabled: false, href: '#' }, { title: 'Job Openings', disabled: true, href: '#' }];
-const loading = ref(false);
-const viewMode = ref<'table' | 'grid'>('table');
-const jobs = ref<JobOpening[]>([]);
-const summary = ref<Summary>({ total_open: 0, total_draft: 0, total_closed: 0, total_applicants: 0 });
-const pagination = reactive({ page: 1, perPage: 10, total: 0 });
-const filters = reactive({ search: '', department: '', type: '', status: '' });
-const sort = reactive({ sortBy: 'created_at', sortDir: 'desc' });
-const snackbar = ref({ show: false, message: '', color: 'success' });
-const confirmDelete = ref({ show: false, id: null as number | null, name: '' });
-const detailDialog = ref(false);
-const detailJob = ref<JobOpening | null>(null);
-const drawerOpen = ref(false);
-const editingId = ref<number | null>(null);
-const departmentNames = ref<string[]>([]);
-const departmentOptions = ref<{ id: number; name: string }[]>([]);
-const designationOptions = ref<{ id: number; name: string; department_id?: number | null }[]>([]);
-
-const form = reactive({
-  title: '', department_id: null as number | null, designation_id: null as number | null, employment_type: 'Full-time', location: '',
-  vacancies: 1, deadline: '', status: 'Draft', description: '', requirements: '', benefits: '', experience_years: null as number | null,
-  education_level: 'Any', salary_currency: 'GHS', salary_from: null as number | null, salary_to: null as number | null
-});
-
-const headers = [
-  { title: 'Job Title', key: 'title', sortable: true }, { title: 'Department', key: 'department', sortable: false }, { title: 'Designation', key: 'designation', sortable: false },
-  { title: 'Vacancies', key: 'vacancies', sortable: true }, { title: 'Salary Range', key: 'salary', sortable: false }, { title: 'Deadline', key: 'deadline', sortable: true },
-  { title: 'Applicants', key: 'applicants_count', sortable: true }, { title: 'Status', key: 'status', sortable: true }, { title: 'Actions', key: 'actions', sortable: false }
-];
-const typeOptions = [{ title: 'All', value: '' }, { title: 'Full-time', value: 'Full-time' }, { title: 'Part-time', value: 'Part-time' }, { title: 'Contract', value: 'Contract' }, { title: 'Intern', value: 'Intern' }, { title: 'Remote', value: 'Remote' }];
-const statusOptions = [{ title: 'All', value: '' }, { title: 'Open', value: 'Open' }, { title: 'Draft', value: 'Draft' }, { title: 'Closed', value: 'Closed' }, { title: 'On Hold', value: 'On Hold' }];
-const createStatus = ['Draft', 'Open', 'Closed', 'On Hold'];
-
-const filteredDesignations = computed(() => !form.department_id ? designationOptions.value : designationOptions.value.filter((d) => d.department_id === form.department_id));
-const dummyJobs: JobOpening[] = [{ id: 1, title: 'Senior Software Engineer', employment_type: 'Full-time', location: 'Accra, Ghana', vacancies: 2, salary_from: 5000, salary_to: 8000, salary_currency: 'GHS', status: 'Open', deadline: new Date(Date.now() + 12096e5).toISOString().slice(0, 10), applicants_count: 12, description: 'Build and scale ERP modules.', requirements: 'Laravel + Vue', benefits: 'Health + bonus', experience_years: 4, education_level: 'Bachelors', created_at: new Date().toISOString(), department: { id: 1, name: 'Engineering' }, designation: { id: 1, name: 'Senior Engineer' }, posted_by: { full_name: 'Pontian Npontu' } }];
-
-function statusColor(s: string) { if (s === 'Open') return 'success'; if (s === 'Draft') return 'warning'; if (s === 'On Hold') return 'info'; return 'secondary'; }
-function salaryRange(j: JobOpening) { if (!j.salary_from && !j.salary_to) return 'Not specified'; if (j.salary_from && j.salary_to) return `${j.salary_currency} ${Number(j.salary_from).toLocaleString()} - ${Number(j.salary_to).toLocaleString()}`; if (j.salary_from) return `${j.salary_currency} ${Number(j.salary_from).toLocaleString()}+`; return `${j.salary_currency} ${Number(j.salary_to || 0).toLocaleString()}`; }
-function isExpired(d: string | null) { return !!d && new Date(d).getTime() < new Date().setHours(0, 0, 0, 0); }
-function resetForm() { editingId.value = null; Object.assign(form, { title: '', department_id: null, designation_id: null, employment_type: 'Full-time', location: '', vacancies: 1, deadline: '', status: 'Draft', description: '', requirements: '', benefits: '', experience_years: null, education_level: 'Any', salary_currency: 'GHS', salary_from: null, salary_to: null }); }
-function openCreate() { resetForm(); drawerOpen.value = true; }
-function openEdit(j: JobOpening) { editingId.value = j.id; Object.assign(form, { title: j.title, department_id: j.department?.id ?? null, designation_id: j.designation?.id ?? null, employment_type: j.employment_type, location: j.location ?? '', vacancies: j.vacancies, deadline: j.deadline ?? '', status: j.status, description: j.description ?? '', requirements: j.requirements ?? '', benefits: j.benefits ?? '', experience_years: j.experience_years, education_level: j.education_level ?? 'Any', salary_currency: j.salary_currency || 'GHS', salary_from: j.salary_from, salary_to: j.salary_to }); drawerOpen.value = true; }
-function askDelete(j: JobOpening) { confirmDelete.value = { show: true, id: j.id, name: j.title }; }
-function openDetails(j: JobOpening) { detailJob.value = j; detailDialog.value = true; }
-function editFromDetail() { if (!detailJob.value) return; detailDialog.value = false; openEdit(detailJob.value); }
-
-async function fetchOptions() {
-  try {
-    const [d, g] = await Promise.all([axios.get('/api/hr/departments', { params: { per_page: 200 } }), axios.get('/api/hr/designations', { params: { per_page: 200 } })]);
-    departmentOptions.value = d.data?.departments?.data ?? [];
-    designationOptions.value = g.data?.designations?.data ?? [];
-  } catch {}
+interface DesignationOption {
+  id: number
+  name: string
+  department_id: number | null
 }
+
+interface DepartmentOption {
+  id: number
+  name: string
+}
+
+const breadcrumbs = [
+  { title: 'HR Module', disabled: false, href: '#' },
+  { title: 'Recruitment', disabled: false, href: '#' },
+  { title: 'Job Openings', disabled: true, href: '#' },
+]
+
+const loading = ref(false)
+const saving = ref(false)
+const deleting = ref(false)
+const jobs = ref<JobItem[]>([])
+const deptOptions = ref<string[]>([])
+const departmentOptions = ref<DepartmentOption[]>([])
+const desigOptions = ref<DesignationOption[]>([])
+const deleteDialog = ref(false)
+const deletingJob = ref<JobItem | null>(null)
+const jobDrawer = ref(false)
+const editingJob = ref<JobItem | null>(null)
+const jobTab = ref('basic')
+const jobErrors = ref<Record<string, string[]>>({})
+
+const stats = ref({
+  open: 0,
+  draft: 0,
+  closed: 0,
+  total_applicants: 0,
+})
+
+const pagination = reactive({
+  page: 1,
+  perPage: 10,
+  total: 0,
+})
+
+const filters = reactive({
+  search: '',
+  department: '',
+  type: '',
+  status: '',
+})
+
+const sort = reactive({
+  sortBy: 'created_at',
+  sortDir: 'desc',
+})
+
+const snackbar = ref({
+  show: false,
+  message: '',
+  color: 'success',
+})
+
+const jobForm = reactive({
+  title: '',
+  department_id: null as number | null,
+  designation_id: null as number | null,
+  employment_type: 'Full-time',
+  vacancies: 1,
+  min_salary: null as number | null,
+  max_salary: null as number | null,
+  location: '',
+  deadline: '',
+  description: '',
+  requirements: '',
+  responsibilities: '',
+  benefits: '',
+  status: 'Draft',
+})
+
+const employmentTypes = ['Full-time', 'Part-time', 'Contract', 'Intern']
+const statusOptions = ['Draft', 'Open', 'Closed', 'On Hold']
+
+const filteredDesignations = computed(() => {
+  if (!jobForm.department_id) {
+    return desigOptions.value
+  }
+
+  return desigOptions.value.filter((designation) => designation.department_id === jobForm.department_id)
+})
 
 async function fetchJobs() {
-  loading.value = true;
+  loading.value = true
   try {
-    const { data } = await axios.get('/api/hr/job-openings', { params: { search: filters.search || undefined, department: filters.department || undefined, type: filters.type || undefined, status: filters.status || undefined, page: pagination.page, per_page: pagination.perPage, sort_by: sort.sortBy, sort_dir: sort.sortDir } });
-    jobs.value = data?.jobs?.data ?? [];
-    pagination.total = data?.jobs?.total ?? 0;
-    summary.value = data?.summary ?? summary.value;
-    departmentNames.value = data?.departments ?? [];
-    if ((data?.department_options ?? []).length) departmentOptions.value = data.department_options;
-    if ((data?.designation_options ?? []).length) designationOptions.value = data.designation_options;
-    if (!jobs.value.length) { jobs.value = dummyJobs; pagination.total = dummyJobs.length; }
+    const { data } = await axios.get('/api/hr/job-openings', {
+      params: {
+        search: filters.search || undefined,
+        department: filters.department || undefined,
+        type: filters.type || undefined,
+        status: filters.status || undefined,
+        page: pagination.page,
+        per_page: pagination.perPage,
+        sort_by: sort.sortBy,
+        sort_dir: sort.sortDir,
+      },
+    })
+
+    jobs.value = data.jobs?.data ?? []
+    pagination.total = data.jobs?.total ?? 0
+    stats.value = data.stats ?? stats.value
+    deptOptions.value = data.filters?.departments ?? []
+    departmentOptions.value = data.filters?.department_options ?? []
+    desigOptions.value = data.filters?.designations ?? []
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: 'Failed to load job openings.',
+      color: 'error',
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+function resetForm() {
+  editingJob.value = null
+  jobTab.value = 'basic'
+  jobErrors.value = {}
+  Object.assign(jobForm, {
+    title: '',
+    department_id: null,
+    designation_id: null,
+    employment_type: 'Full-time',
+    vacancies: 1,
+    min_salary: null,
+    max_salary: null,
+    location: '',
+    deadline: '',
+    description: '',
+    requirements: '',
+    responsibilities: '',
+    benefits: '',
+    status: 'Draft',
+  })
+}
+
+function openCreateDrawer() {
+  resetForm()
+  jobDrawer.value = true
+}
+
+function openEditDrawer(job: JobItem) {
+  editingJob.value = job
+  jobTab.value = 'basic'
+  jobErrors.value = {}
+
+  Object.assign(jobForm, {
+    title: job.title,
+    department_id: job.department?.id ?? null,
+    designation_id: job.designation?.id ?? null,
+    employment_type: job.employment_type,
+    vacancies: job.vacancies,
+    min_salary: job.min_salary,
+    max_salary: job.max_salary,
+    location: job.location ?? '',
+    deadline: job.deadline_raw ?? '',
+    description: job.description ?? '',
+    requirements: job.requirements ?? '',
+    responsibilities: job.responsibilities ?? '',
+    benefits: job.benefits ?? '',
+    status: job.status,
+  })
+
+  jobDrawer.value = true
+}
+
+async function changeStatus(job: JobItem, newStatus: string) {
+  try {
+    const { data } = await axios.patch(`/api/hr/job-openings/${job.id}/status`, { status: newStatus })
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    await fetchJobs()
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to update status.',
+      color: 'error',
+    }
+  }
+}
+
+async function duplicateJob(job: JobItem) {
+  try {
+    const { data } = await axios.post(`/api/hr/job-openings/${job.id}/duplicate`)
+    snackbar.value = {
+      show: true,
+      message: data.message,
+      color: 'success',
+    }
+    await fetchJobs()
   } catch {
-    jobs.value = dummyJobs;
-    pagination.total = dummyJobs.length;
-    summary.value = { total_open: 1, total_draft: 0, total_closed: 0, total_applicants: 12 };
-    snackbar.value = { show: true, message: 'Using dummy job openings data.', color: 'warning' };
-  } finally { loading.value = false; }
+    snackbar.value = {
+      show: true,
+      message: 'Failed to duplicate.',
+      color: 'error',
+    }
+  }
 }
 
-async function saveJob(nextStatus?: 'Draft' | 'Open') {
-  if (!form.title.trim()) return;
-  const payload = { ...form, status: nextStatus ?? form.status, location: form.location || null, deadline: form.deadline || null, description: form.description || null, requirements: form.requirements || null, benefits: form.benefits || null, experience_years: form.experience_years || null, education_level: form.education_level || null, salary_from: form.salary_from || null, salary_to: form.salary_to || null };
+function askDelete(job: JobItem) {
+  deletingJob.value = job
+  deleteDialog.value = true
+}
+
+async function confirmDelete() {
+  if (!deletingJob.value) return
+
+  deleting.value = true
   try {
-    if (editingId.value) await axios.put(`/api/hr/job-openings/${editingId.value}`, payload); else await axios.post('/api/hr/job-openings', payload);
-    drawerOpen.value = false;
-    snackbar.value = { show: true, message: 'Job saved.', color: 'success' };
-    fetchJobs();
-  } catch (e: any) { snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Save failed.', color: 'error' }; }
+    await axios.delete(`/api/hr/job-openings/${deletingJob.value.id}`)
+    snackbar.value = {
+      show: true,
+      message: 'Job posting deleted.',
+      color: 'success',
+    }
+    deleteDialog.value = false
+    await fetchJobs()
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to delete.',
+      color: 'error',
+    }
+    deleteDialog.value = false
+  } finally {
+    deleting.value = false
+  }
 }
 
-async function changeStatus(j: JobOpening, status: string) { try { await axios.patch(`/api/hr/job-openings/${j.id}/status`, { status }); fetchJobs(); } catch {} }
-async function duplicateJob(j: JobOpening) { await axios.post('/api/hr/job-openings', { title: `${j.title} (Copy)`, department_id: j.department?.id ?? null, designation_id: j.designation?.id ?? null, employment_type: j.employment_type, location: j.location, vacancies: j.vacancies, salary_from: j.salary_from, salary_to: j.salary_to, salary_currency: j.salary_currency, description: j.description, requirements: j.requirements, benefits: j.benefits, experience_years: j.experience_years, education_level: j.education_level, status: 'Draft', deadline: j.deadline }); fetchJobs(); }
-async function confirmDeleteJob() { if (!confirmDelete.value.id) return; try { await axios.delete(`/api/hr/job-openings/${confirmDelete.value.id}`); confirmDelete.value.show = false; fetchJobs(); } catch (e: any) { snackbar.value = { show: true, message: e?.response?.data?.message ?? 'Delete failed.', color: 'error' }; } }
+async function saveJob() {
+  saving.value = true
+  try {
+    const payload = {
+      ...jobForm,
+      location: jobForm.location || undefined,
+      deadline: jobForm.deadline || undefined,
+      description: jobForm.description || undefined,
+      requirements: jobForm.requirements || undefined,
+      responsibilities: jobForm.responsibilities || undefined,
+      benefits: jobForm.benefits || undefined,
+    }
 
-function exportCsv() {
-  if (!jobs.value.length) return;
-  const rows = [['Title', 'Department', 'Type', 'Location', 'Status', 'Applicants'], ...jobs.value.map((j) => [j.title, j.department?.name ?? '-', j.employment_type, j.location ?? '-', j.status, j.applicants_count])];
-  const csv = rows.map((r) => r.map((c) => `\"${String(c).replace(/\"/g, '\"\"')}\"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'job-openings.csv'; link.click(); URL.revokeObjectURL(url);
+    if (editingJob.value) {
+      const { data } = await axios.put(`/api/hr/job-openings/${editingJob.value.id}`, payload)
+      snackbar.value = { show: true, message: data.message, color: 'success' }
+    } else {
+      const { data } = await axios.post('/api/hr/job-openings', payload)
+      snackbar.value = { show: true, message: data.message, color: 'success' }
+    }
+
+    jobDrawer.value = false
+    await fetchJobs()
+  } catch (error: any) {
+    if (error?.response?.status === 422) {
+      jobErrors.value = error.response.data.errors ?? {}
+    }
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to save job.',
+      color: 'error',
+    }
+  } finally {
+    saving.value = false
+  }
 }
 
-function handleTableOptions(options: any) { pagination.page = options.page; pagination.perPage = options.itemsPerPage; if (options.sortBy?.length) { sort.sortBy = options.sortBy[0].key; sort.sortDir = options.sortBy[0].order ?? 'asc'; } else { sort.sortBy = 'created_at'; sort.sortDir = 'desc'; } fetchJobs(); }
-watch(() => [filters.search, filters.department, filters.type, filters.status], () => { pagination.page = 1; fetchJobs(); });
-watch(() => form.department_id, () => { if (!filteredDesignations.value.some((d) => d.id === form.designation_id)) form.designation_id = null; });
-onMounted(async () => { await fetchOptions(); await fetchJobs(); });
+function exportJobs() {
+  const headers = ['Title', 'Department', 'Designation', 'Type', 'Vacancies', 'Salary Range', 'Deadline', 'Applicants', 'Status']
+  const rows = jobs.value.map((job) => [
+    job.title,
+    job.department?.name ?? '-',
+    job.designation?.name ?? '-',
+    job.employment_type,
+    job.vacancies,
+    job.salary_range,
+    job.deadline ?? '-',
+    job.applicants_count,
+    job.status,
+  ])
+
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'job-openings.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+watch(
+  () => [filters.search, filters.department, filters.type, filters.status],
+  () => {
+    pagination.page = 1
+    fetchJobs()
+  },
+)
+
+watch(
+  () => [pagination.page, pagination.perPage, sort.sortBy, sort.sortDir],
+  () => {
+    fetchJobs()
+  },
+)
+
+watch(
+  () => jobForm.department_id,
+  () => {
+    if (!filteredDesignations.value.some((item) => item.id === jobForm.designation_id)) {
+      jobForm.designation_id = null
+    }
+  },
+)
+
+onMounted(async () => {
+  await fetchJobs()
+})
 </script>
 
 <template>
   <BaseBreadcrumb title="Job Openings" subtitle="Manage recruitment and open positions" :breadcrumbs="breadcrumbs" />
-  <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4"><div><h2 class="text-h3 mb-1">Job Openings</h2><p class="text-subtitle-1 text-lightText mb-0">Manage recruitment and open positions</p></div><div class="d-flex ga-2"><v-btn variant="outlined" prepend-icon="mdi-download" @click="exportCsv">Export</v-btn><v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">Post Job</v-btn></div></div>
 
-  <v-row class="mb-1"><v-col cols="12" sm="6" md="3"><v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Open Positions: <strong>{{ summary.total_open }}</strong></v-card-text></v-card></v-col><v-col cols="12" sm="6" md="3"><v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Draft Jobs: <strong>{{ summary.total_draft }}</strong></v-card-text></v-card></v-col><v-col cols="12" sm="6" md="3"><v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Closed Jobs: <strong>{{ summary.total_closed }}</strong></v-card-text></v-card></v-col><v-col cols="12" sm="6" md="3"><v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>Total Applicants: <strong>{{ summary.total_applicants }}</strong></v-card-text></v-card></v-col></v-row>
+  <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
+    <div>
+      <h2 class="text-h3 mb-1">Job Openings</h2>
+      <p class="text-subtitle-1 text-lightText mb-0">Manage recruitment and open positions</p>
+    </div>
+    <div class="d-flex ga-2">
+      <v-btn variant="outlined" prepend-icon="mdi-download" @click="exportJobs">Export</v-btn>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateDrawer">Post Job</v-btn>
+    </div>
+  </div>
 
-  <v-card class="bg-surface rounded-lg hr-card-shadow mb-4" variant="outlined" elevation="0"><v-card-text><v-row><v-col cols="12" md="4"><v-text-field v-model="filters.search" placeholder="Search by job title or location..." variant="outlined" hide-details /></v-col><v-col cols="12" sm="6" md="3"><v-select v-model="filters.department" :items="[{ title: 'All Departments', value: '' }, ...departmentNames.map((name) => ({ title: name, value: name }))]" label="Department" variant="outlined" hide-details /></v-col><v-col cols="12" sm="6" md="2"><v-select v-model="filters.type" :items="typeOptions" label="Employment Type" variant="outlined" hide-details /></v-col><v-col cols="12" sm="6" md="2"><v-select v-model="filters.status" :items="statusOptions" label="Status" variant="outlined" hide-details /></v-col><v-col cols="12" sm="6" md="1" class="d-flex align-center justify-end ga-1"><v-btn :color="viewMode === 'table' ? 'primary' : 'default'" icon="mdi-view-list" variant="text" @click="viewMode = 'table'" /><v-btn :color="viewMode === 'grid' ? 'primary' : 'default'" icon="mdi-view-grid" variant="text" @click="viewMode = 'grid'" /></v-col></v-row></v-card-text></v-card>
+  <v-row class="mb-1">
+    <v-col cols="12" sm="6" md="3"><v-card variant="outlined"><v-card-text>Open: <strong>{{ stats.open }}</strong></v-card-text></v-card></v-col>
+    <v-col cols="12" sm="6" md="3"><v-card variant="outlined"><v-card-text>Draft: <strong>{{ stats.draft }}</strong></v-card-text></v-card></v-col>
+    <v-col cols="12" sm="6" md="3"><v-card variant="outlined"><v-card-text>Closed: <strong>{{ stats.closed }}</strong></v-card-text></v-card></v-col>
+    <v-col cols="12" sm="6" md="3"><v-card variant="outlined"><v-card-text>Total Applicants: <strong>{{ stats.total_applicants }}</strong></v-card-text></v-card></v-col>
+  </v-row>
 
-  <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text>
-    <v-skeleton-loader v-if="loading && !jobs.length" type="table" />
-    <v-data-table-server v-else-if="viewMode === 'table'" :headers="headers" :items="jobs" :items-length="pagination.total" :items-per-page="pagination.perPage" :page="pagination.page" :items-per-page-options="[10, 25, 50]" item-value="id" @update:options="handleTableOptions">
-      <template #item.title="{ item }"><div class="cursor-pointer" @click="openDetails(item)"><div class="font-weight-medium text-body-1">{{ item.title }}</div><v-chip size="x-small" color="primary" variant="tonal">{{ item.employment_type }}</v-chip></div></template>
-      <template #item.department="{ item }">{{ item.department?.name ?? '-' }}</template><template #item.designation="{ item }">{{ item.designation?.name ?? '-' }}</template>
-      <template #item.vacancies="{ item }"><v-chip size="small" color="primary" variant="tonal">{{ item.vacancies }}</v-chip></template><template #item.salary="{ item }">{{ salaryRange(item) }}</template>
-      <template #item.deadline="{ item }"><span :class="{ 'text-error': isExpired(item.deadline) }">{{ item.deadline ?? '-' }}</span></template><template #item.applicants_count="{ item }"><v-chip size="small" variant="outlined" class="cursor-pointer" @click="router.visit(`/hr/applicants?job=${item.id}`)">{{ item.applicants_count }}</v-chip></template>
-      <template #item.status="{ item }"><v-chip :color="statusColor(item.status)" size="small" variant="tonal">{{ item.status }}</v-chip></template>
-      <template #item.actions="{ item }"><v-menu><template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template><v-list><v-list-item title="View Details" @click="openDetails(item)" /><v-list-item title="Edit Job" @click="openEdit(item)" /><v-list-item title="Open" @click="changeStatus(item, 'Open')" /><v-list-item title="Draft" @click="changeStatus(item, 'Draft')" /><v-list-item title="Closed" @click="changeStatus(item, 'Closed')" /><v-list-item title="On Hold" @click="changeStatus(item, 'On Hold')" /><v-list-item title="View Applicants" @click="router.visit(`/hr/applicants?job=${item.id}`)" /><v-list-item title="Duplicate" @click="duplicateJob(item)" /><v-list-item title="Delete" base-color="error" @click="askDelete(item)" /></v-list></v-menu></template>
-    </v-data-table-server>
-    <v-row v-else><v-col v-for="item in jobs" :key="item.id" cols="12" sm="6" md="4" lg="3"><v-card class="rounded-lg hr-card-shadow" variant="outlined" elevation="0"><v-card-text><div class="d-flex justify-space-between align-center mb-2"><v-chip size="x-small" variant="tonal">{{ item.department?.name ?? 'No Department' }}</v-chip><v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">{{ item.status }}</v-chip></div><h6 class="text-h6 mb-2">{{ item.title }}</h6><p class="text-body-2 text-lightText mb-1">{{ item.location ?? 'Not specified' }}</p><p class="text-body-2 text-lightText mb-1">{{ item.employment_type }}</p><p class="text-body-2 text-lightText mb-1">{{ salaryRange(item) }}</p><p class="text-body-2 mb-3" :class="{ 'text-error': isExpired(item.deadline) }">{{ item.deadline ?? 'No deadline' }}</p><div class="d-flex justify-space-between align-center"><v-chip size="small" variant="outlined">{{ item.applicants_count }}</v-chip><div class="d-flex ga-1"><v-btn size="small" variant="outlined" @click="openDetails(item)">View</v-btn><v-btn size="small" icon="mdi-pencil" variant="text" @click="openEdit(item)" /></div></div></v-card-text></v-card></v-col></v-row>
-  </v-card-text></v-card>
+  <v-card variant="outlined" class="mb-4">
+    <v-card-text>
+      <v-row>
+        <v-col cols="12" md="4"><v-text-field v-model="filters.search" placeholder="Search by title..." variant="outlined" hide-details /></v-col>
+        <v-col cols="12" sm="6" md="3"><v-select v-model="filters.department" :items="['', ...deptOptions]" label="Department" variant="outlined" hide-details /></v-col>
+        <v-col cols="12" sm="6" md="2"><v-select v-model="filters.type" :items="['', ...employmentTypes]" label="Type" variant="outlined" hide-details /></v-col>
+        <v-col cols="12" sm="6" md="2"><v-select v-model="filters.status" :items="['', ...statusOptions]" label="Status" variant="outlined" hide-details /></v-col>
+        <v-col cols="12" sm="6" md="1"><v-select v-model="pagination.perPage" :items="[10,25,50]" label="Rows" variant="outlined" hide-details /></v-col>
+      </v-row>
+    </v-card-text>
+  </v-card>
 
-  <v-navigation-drawer v-model="drawerOpen" location="right" temporary width="640"><div class="pa-4 border-b d-flex justify-space-between align-center"><h5 class="text-h5 mb-0">{{ editingId ? 'Edit Job Opening' : 'Post New Job' }}</h5><v-btn icon="mdi-close" variant="text" @click="drawerOpen = false" /></div><div class="pa-4 drawer-body"><v-text-field v-model="form.title" label="Job Title *" variant="outlined" class="mb-3" /><v-row><v-col cols="12" md="6"><v-select v-model="form.department_id" :items="departmentOptions.map((i) => ({ title: i.name, value: i.id }))" label="Department" variant="outlined" /></v-col><v-col cols="12" md="6"><v-select v-model="form.designation_id" :items="filteredDesignations.map((i) => ({ title: i.name, value: i.id }))" label="Designation" variant="outlined" /></v-col><v-col cols="12" md="6"><v-select v-model="form.employment_type" :items="typeOptions.filter((i) => i.value).map((i) => i.value)" label="Employment Type *" variant="outlined" /></v-col><v-col cols="12" md="6"><v-text-field v-model="form.location" label="Location" variant="outlined" /></v-col><v-col cols="12" md="4"><v-text-field v-model.number="form.vacancies" type="number" min="1" label="Vacancies *" variant="outlined" /></v-col><v-col cols="12" md="4"><v-text-field v-model="form.deadline" type="date" label="Deadline" variant="outlined" /></v-col><v-col cols="12" md="4"><v-select v-model="form.status" :items="createStatus" label="Status *" variant="outlined" /></v-col></v-row><v-textarea v-model="form.description" label="Job Description" rows="4" variant="outlined" class="mb-2" /><v-row><v-col cols="12" md="3"><v-select v-model="form.salary_currency" :items="['GHS', 'USD', 'EUR', 'GBP']" label="Currency" variant="outlined" /></v-col><v-col cols="12" md="4"><v-text-field v-model.number="form.salary_from" type="number" min="0" label="Salary From" variant="outlined" /></v-col><v-col cols="12" md="4"><v-text-field v-model.number="form.salary_to" type="number" min="0" label="Salary To" variant="outlined" /></v-col></v-row></div><div class="pa-4 border-t d-flex justify-end ga-2 sticky-footer"><v-btn variant="outlined" @click="drawerOpen = false">Cancel</v-btn><v-btn variant="outlined" @click="saveJob('Draft')">Save as Draft</v-btn><v-btn color="primary" @click="saveJob('Open')">Post Job</v-btn></div></v-navigation-drawer>
+  <v-card variant="outlined">
+    <v-card-text>
+      <v-skeleton-loader v-if="loading" type="table-tbody" />
+      <v-table v-else>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Department</th>
+            <th>Designation</th>
+            <th>Type</th>
+            <th>Vacancies</th>
+            <th>Salary Range</th>
+            <th>Deadline</th>
+            <th>Applicants</th>
+            <th>Status</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="job in jobs" :key="job.id">
+            <td>
+              <div class="font-weight-medium">{{ job.title }}</div>
+              <div class="text-caption text-medium-emphasis">{{ job.location || '-' }}</div>
+            </td>
+            <td>
+              <span v-if="job.department">{{ job.department.name }}</span>
+              <span v-else class="text-medium-emphasis">-</span>
+            </td>
+            <td>
+              <span v-if="job.designation">{{ job.designation.name }}</span>
+              <span v-else class="text-medium-emphasis">-</span>
+            </td>
+            <td>{{ job.employment_type }}</td>
+            <td>{{ job.vacancies }}</td>
+            <td>{{ job.salary_range }}</td>
+            <td>
+              <span v-if="job.deadline" :class="job.is_expired ? 'text-error font-weight-medium' : ''">
+                {{ job.deadline }}
+                <v-icon v-if="job.is_expired" size="14" color="error">mdi-alert-circle</v-icon>
+              </span>
+              <span v-else class="text-medium-emphasis">-</span>
+            </td>
+            <td>{{ job.applicants_count }}</td>
+            <td><v-chip size="small" :color="job.status_color" variant="tonal">{{ job.status }}</v-chip></td>
+            <td class="text-right">
+              <v-menu>
+                <template #activator="{ props }">
+                  <v-btn v-bind="props" icon variant="text" size="small">
+                    <v-icon>mdi-dots-vertical</v-icon>
+                  </v-btn>
+                </template>
+                <v-list density="compact">
+                  <v-list-item prepend-icon="mdi-account-group" title="View Applicants" @click="router.visit('/hr/applicants?job_id=' + job.id)" />
+                  <v-list-item prepend-icon="mdi-pencil" title="Edit Job" @click="openEditDrawer(job)" />
+                  <v-list-item v-if="job.status !== 'Open'" prepend-icon="mdi-check-circle" title="Mark as Open" @click="changeStatus(job, 'Open')" />
+                  <v-list-item v-if="job.status !== 'On Hold'" prepend-icon="mdi-pause-circle" title="Put On Hold" @click="changeStatus(job, 'On Hold')" />
+                  <v-list-item v-if="job.status !== 'Closed'" prepend-icon="mdi-close-circle" title="Close Job" @click="changeStatus(job, 'Closed')" />
+                  <v-list-item prepend-icon="mdi-content-copy" title="Duplicate" @click="duplicateJob(job)" />
+                  <v-divider />
+                  <v-list-item prepend-icon="mdi-delete" title="Delete" base-color="error" @click="askDelete(job)" />
+                </v-list>
+              </v-menu>
+            </td>
+          </tr>
+          <tr v-if="jobs.length === 0">
+            <td colspan="10" class="text-center py-8 text-medium-emphasis">No job openings found.</td>
+          </tr>
+        </tbody>
+      </v-table>
 
-  <v-dialog v-model="detailDialog" max-width="720"><v-card><v-card-title class="text-h5">Job Details</v-card-title><v-card-text v-if="detailJob"><h4 class="text-h5 mb-2">{{ detailJob.title }}</h4><p class="text-caption text-lightText mb-3">Posted by {{ detailJob.posted_by?.full_name ?? 'System' }} on {{ detailJob.created_at.slice(0, 10) }}</p><v-row><v-col cols="12" md="7"><h6 class="text-h6 mb-1">Description</h6><p class="text-body-2 mb-3">{{ detailJob.description || 'No description provided.' }}</p><h6 class="text-h6 mb-1">Requirements</h6><p class="text-body-2 mb-3">{{ detailJob.requirements || 'No requirements provided.' }}</p><h6 class="text-h6 mb-1">Benefits</h6><p class="text-body-2">{{ detailJob.benefits || 'No benefits provided.' }}</p></v-col><v-col cols="12" md="5"><v-card variant="outlined"><v-card-text><div class="text-caption text-lightText">Type</div><div class="mb-2">{{ detailJob.employment_type }}</div><div class="text-caption text-lightText">Location</div><div class="mb-2">{{ detailJob.location || 'N/A' }}</div><div class="text-caption text-lightText">Vacancies</div><div class="mb-2">{{ detailJob.vacancies }}</div><div class="text-caption text-lightText">Salary</div><div>{{ salaryRange(detailJob) }}</div></v-card-text></v-card></v-col></v-row></v-card-text><v-card-actions><v-spacer /><v-btn variant="text" @click="detailDialog = false">Close</v-btn><v-btn variant="outlined" color="primary" @click="editFromDetail">Edit Job</v-btn><v-btn variant="outlined" @click="router.visit(`/hr/applicants?job=${detailJob?.id}`)">View Applicants</v-btn></v-card-actions></v-card></v-dialog>
-  <v-dialog v-model="confirmDelete.show" max-width="420"><v-card><v-card-title class="text-h5">Delete Job Opening</v-card-title><v-card-text>Are you sure you want to delete {{ confirmDelete.name }}? This action cannot be undone.</v-card-text><v-card-actions><v-spacer /><v-btn variant="text" @click="confirmDelete.show = false">Cancel</v-btn><v-btn color="error" variant="flat" @click="confirmDeleteJob">Delete</v-btn></v-card-actions></v-card></v-dialog>
+      <div class="d-flex justify-end mt-4">
+        <v-pagination v-model="pagination.page" :length="Math.max(1, Math.ceil(pagination.total / pagination.perPage))" />
+      </div>
+    </v-card-text>
+  </v-card>
+
+  <v-navigation-drawer v-model="jobDrawer" location="right" temporary width="720">
+    <div class="pa-4 border-b d-flex justify-space-between align-center">
+      <h5 class="text-h5 mb-0">{{ editingJob ? 'Edit Job Opening' : 'Post Job' }}</h5>
+      <v-btn icon="mdi-close" variant="text" @click="jobDrawer = false" />
+    </div>
+
+    <div class="pa-4 drawer-body">
+      <v-tabs v-model="jobTab" color="primary" class="mb-4">
+        <v-tab value="basic">Basic Info</v-tab>
+        <v-tab value="details">Job Details</v-tab>
+        <v-tab value="compensation">Compensation</v-tab>
+      </v-tabs>
+
+      <v-window v-model="jobTab">
+        <v-window-item value="basic">
+          <v-row>
+            <v-col cols="12" md="6"><v-text-field v-model="jobForm.title" label="Title *" variant="outlined" :error-messages="jobErrors.title?.[0]" /></v-col>
+            <v-col cols="12" md="6"><v-select v-model="jobForm.employment_type" :items="employmentTypes" label="Employment Type *" variant="outlined" :error-messages="jobErrors.employment_type?.[0]" /></v-col>
+            <v-col cols="12" md="4"><v-text-field v-model.number="jobForm.vacancies" type="number" min="1" label="Vacancies *" variant="outlined" :error-messages="jobErrors.vacancies?.[0]" /></v-col>
+            <v-col cols="12" md="4"><v-select v-model="jobForm.status" :items="statusOptions" label="Status *" variant="outlined" :error-messages="jobErrors.status?.[0]" /></v-col>
+            <v-col cols="12" md="6"><v-select v-model="jobForm.department_id" :items="departmentOptions.map((item) => ({ title: item.name, value: item.id }))" label="Department" variant="outlined" /></v-col>
+            <v-col cols="12" md="6"><v-select v-model="jobForm.designation_id" :items="filteredDesignations.map((item) => ({ title: item.name, value: item.id }))" label="Designation" variant="outlined" /></v-col>
+            <v-col cols="12" md="6"><v-text-field v-model="jobForm.location" label="Location" variant="outlined" /></v-col>
+          </v-row>
+        </v-window-item>
+
+        <v-window-item value="details">
+          <v-textarea v-model="jobForm.description" label="Description" variant="outlined" rows="4" class="mb-3" />
+          <v-textarea v-model="jobForm.requirements" label="Requirements" variant="outlined" rows="4" class="mb-3" />
+          <v-textarea v-model="jobForm.responsibilities" label="Responsibilities" variant="outlined" rows="4" class="mb-3" />
+          <v-textarea v-model="jobForm.benefits" label="Benefits" variant="outlined" rows="4" />
+        </v-window-item>
+
+        <v-window-item value="compensation">
+          <v-row>
+            <v-col cols="12" md="4"><v-text-field v-model.number="jobForm.min_salary" type="number" min="0" label="Min Salary" variant="outlined" /></v-col>
+            <v-col cols="12" md="4"><v-text-field v-model.number="jobForm.max_salary" type="number" min="0" label="Max Salary" variant="outlined" /></v-col>
+            <v-col cols="12" md="4"><v-text-field v-model="jobForm.deadline" type="date" label="Deadline" variant="outlined" /></v-col>
+          </v-row>
+        </v-window-item>
+      </v-window>
+    </div>
+
+    <div class="pa-4 border-t d-flex justify-end ga-2 sticky-footer">
+      <v-btn variant="outlined" @click="jobDrawer = false">Cancel</v-btn>
+      <v-btn color="primary" :loading="saving" @click="saveJob">Save Job</v-btn>
+    </div>
+  </v-navigation-drawer>
+
+  <v-dialog v-model="deleteDialog" max-width="420">
+    <v-card>
+      <v-card-title class="text-h5">Delete Job</v-card-title>
+      <v-card-text>Delete {{ deletingJob?.title }}?</v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="deleteDialog = false">Cancel</v-btn>
+        <v-btn color="error" variant="flat" :loading="deleting" @click="confirmDelete">Delete</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
 </template>
 
 <style scoped>
-.hr-card-shadow { box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06); }
-.cursor-pointer { cursor: pointer; }
-.drawer-body { height: calc(100% - 130px); overflow-y: auto; }
+.drawer-body { height: calc(100% - 132px); overflow-y: auto; }
 .sticky-footer { position: sticky; bottom: 0; background: #fff; }
 .border-b { border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
 .border-t { border-top: 1px solid rgba(0, 0, 0, 0.08); }

@@ -12,52 +12,48 @@ class ApplicantSeeder extends Seeder
     {
         $jobs = JobOpening::all();
         if ($jobs->isEmpty()) {
+            echo 'No job openings found. Run JobOpeningSeeder first.';
             return;
         }
 
-        $statuses = ['New', 'New', 'Reviewing', 'Shortlisted', 'Interview Scheduled', 'Interviewed', 'Offer Sent', 'Hired', 'Rejected'];
-        $sources = ['LinkedIn', 'Website', 'Referral', 'Job Board', 'Walk-in'];
-        $names = [
-            ['Kofi', 'Boateng'], ['Ama', 'Mensah'], ['Kweku', 'Asante'], ['Abena', 'Owusu'],
-            ['Yaw', 'Darko'], ['Akosua', 'Frimpong'], ['Nana', 'Adjei'], ['Kwame', 'Tetteh'],
-            ['Efua', 'Amponsah'], ['Kojo', 'Sarpong'], ['Adwoa', 'Osei'], ['Fiifi', 'Ankrah'],
+        $sources = ['Website', 'LinkedIn', 'Referral', 'Job Board', 'Walk-in'];
+        $firstNames = ['Kofi', 'Ama', 'Kweku', 'Abena', 'Yaw', 'Akosua', 'Kwame', 'Adwoa', 'Nana', 'Fiifi', 'Efua', 'Kojo'];
+        $lastNames = ['Mensah', 'Asante', 'Boateng', 'Owusu', 'Darko', 'Osei', 'Adjei', 'Frimpong', 'Acheampong', 'Amoah', 'Appiah', 'Nyarko'];
+
+        $statusByStage = [
+            1 => ['New', 'Reviewing'],
+            2 => ['Reviewing', 'Shortlisted'],
+            3 => ['Interview Scheduled', 'Interviewed'],
+            4 => ['Offer Sent'],
+            5 => ['Hired'],
         ];
-        $cities = ['Accra', 'Kumasi', 'Takoradi', 'Tamale', 'Cape Coast'];
-        $edu = ['HND', 'Bachelors', 'Masters'];
-        $notices = ['Immediate', '2 weeks', '1 month'];
 
         foreach ($jobs as $job) {
-            $count = rand(3, 6);
+            $count = rand(3, 8);
             for ($i = 0; $i < $count; $i++) {
-                $name = $names[array_rand($names)];
+                $stage = rand(1, 5);
+                $statuses = $statusByStage[$stage];
                 $status = $statuses[array_rand($statuses)];
-                $stage = match (true) {
-                    in_array($status, ['New', 'Reviewing'], true) => 1,
-                    $status === 'Shortlisted' => 2,
-                    in_array($status, ['Interview Scheduled', 'Interviewed'], true) => 3,
-                    $status === 'Offer Sent' => 4,
-                    in_array($status, ['Hired', 'Rejected', 'Withdrawn'], true) => 5,
-                    default => 1,
-                };
 
                 Applicant::create([
                     'job_opening_id' => $job->id,
-                    'first_name' => $name[0],
-                    'last_name' => $name[1],
-                    'email' => strtolower($name[0] . '.' . $name[1] . '.' . rand(1, 99) . '@email.com'),
-                    'phone' => '055' . rand(1000000, 9999999),
-                    'location' => $cities[array_rand($cities)],
-                    'experience_years' => rand(0, 10),
-                    'education_level' => $edu[array_rand($edu)],
+                    'first_name' => $firstNames[array_rand($firstNames)],
+                    'last_name' => $lastNames[array_rand($lastNames)],
+                    'email' => strtolower($firstNames[array_rand($firstNames)] . '.' . rand(10, 99) . '@email.com'),
+                    'phone' => '05' . rand(10000000, 99999999),
                     'source' => $sources[array_rand($sources)],
-                    'status' => $status,
+                    'experience_years' => rand(0, 10),
+                    'current_company' => 'Company ' . rand(1, 20),
+                    'expected_salary' => rand(3, 15) * 1000,
                     'stage' => $stage,
-                    'rating' => rand(1, 5),
-                    'expected_salary' => rand(2000, 10000),
-                    'notice_period' => $notices[array_rand($notices)],
+                    'status' => $status,
+                    'rating' => rand(2, 5),
+                    'created_at' => now()->subDays(rand(1, 60)),
+                    'updated_at' => now(),
                 ]);
             }
         }
+
+        echo 'Applicants seeded.';
     }
 }
-

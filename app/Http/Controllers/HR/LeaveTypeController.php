@@ -10,7 +10,10 @@ class LeaveTypeController extends Controller
 {
     public function index()
     {
-        $types = LeaveType::withCount('leaveRequests')
+        $types = LeaveType::withCount([
+            'leaveRequests',
+            'leaveRequests as approved_count' => fn ($query) => $query->where('status', 'Approved'),
+        ])
             ->orderBy('name')
             ->get();
 
@@ -22,14 +25,20 @@ class LeaveTypeController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|unique:leave_types,name',
             'days_allowed' => 'required|integer|min:1',
+            'description' => 'nullable|string|max:500',
             'carry_forward' => 'boolean',
             'requires_approval' => 'boolean',
-            'color' => 'nullable|string',
+            'max_carry_forward_days' => 'nullable|integer|min:0',
+            'applicable_gender' => 'nullable|in:Male,Female,All',
+            'color' => 'nullable|string|max:7',
             'status' => 'required|in:Active,Inactive',
         ]);
 
         $type = LeaveType::create($validated);
-        return response()->json(['leave_type' => $type], 201);
+        return response()->json([
+            'leave_type' => $type,
+            'message' => 'Leave type created.',
+        ], 201);
     }
 
     public function update(Request $request, int $id)
@@ -39,14 +48,20 @@ class LeaveTypeController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|unique:leave_types,name,' . $id,
             'days_allowed' => 'required|integer|min:1',
+            'description' => 'nullable|string|max:500',
             'carry_forward' => 'boolean',
             'requires_approval' => 'boolean',
-            'color' => 'nullable|string',
+            'max_carry_forward_days' => 'nullable|integer|min:0',
+            'applicable_gender' => 'nullable|in:Male,Female,All',
+            'color' => 'nullable|string|max:7',
             'status' => 'required|in:Active,Inactive',
         ]);
 
         $type->update($validated);
-        return response()->json(['leave_type' => $type]);
+        return response()->json([
+            'leave_type' => $type,
+            'message' => 'Leave type updated.',
+        ]);
     }
 
     public function destroy(int $id)

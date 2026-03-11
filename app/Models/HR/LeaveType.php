@@ -14,8 +14,11 @@ class LeaveType extends Model
     protected $fillable = [
         'name',
         'days_allowed',
+        'description',
         'carry_forward',
         'requires_approval',
+        'max_carry_forward_days',
+        'applicable_gender',
         'color',
         'status',
     ];
@@ -28,5 +31,10 @@ class LeaveType extends Model
     public function leaveRequests()
     {
         return $this->hasMany(LeaveRequest::class, 'leave_type_id');
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'Active');
     }
 }

@@ -15,13 +15,19 @@ class OnboardingTemplate extends Model
         'name',
         'description',
         'department_id',
-        'designation_id',
+        'days_to_complete',
         'status',
     ];
 
     public function tasks()
     {
-        return $this->hasMany(OnboardingTask::class, 'onboarding_template_id');
+        return $this->hasMany(OnboardingTask::class, 'template_id')
+            ->orderBy('sort_order');
+    }
+
+    public function onboardings()
+    {
+        return $this->hasMany(EmployeeOnboarding::class, 'template_id');
     }
 
     public function department()
@@ -29,9 +35,8 @@ class OnboardingTemplate extends Model
         return $this->belongsTo(Department::class, 'department_id');
     }
 
-    public function designation()
+    public function scopeActive($query)
     {
-        return $this->belongsTo(Designation::class, 'designation_id');
+        return $query->where('status', 'Active');
     }
 }
-

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
-import { usePage } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 
 type DashboardSummary = {
-  on_leave: number;
-  pending_approvals: number;
-  open_positions: number;
-};
+  on_leave: number
+  pending_approvals: number
+  open_positions: number
+}
 
 const page = usePage();
 const isLoading = ref(true);
@@ -24,12 +24,11 @@ const todayLabel = new Intl.DateTimeFormat('en-US', {
   year: 'numeric'
 }).format(new Date());
 
-const userFullName = computed(() => {
-  return ((page.props as any)?.auth?.user?.name as string) || 'Team Lead';
-});
+const userFullName = computed(() => ((page.props as any)?.auth?.user?.name as string) || 'Team Lead');
 
-async function loadSummary() {
+async function fetchSummary() {
   isLoading.value = true;
+
   try {
     const { data } = await axios.get('/api/hr/dashboard/summary');
     summary.value = {
@@ -38,6 +37,7 @@ async function loadSummary() {
       open_positions: Number(data?.open_positions ?? 0)
     };
   } catch (error) {
+    console.error('Summary fetch failed', error);
     summary.value = {
       on_leave: 0,
       pending_approvals: 0,
@@ -48,7 +48,7 @@ async function loadSummary() {
   }
 }
 
-onMounted(loadSummary);
+onMounted(fetchSummary);
 </script>
 
 <template>
@@ -62,12 +62,20 @@ onMounted(loadSummary);
           <p class="text-h6 mb-5">{{ todayLabel }}</p>
 
           <div class="d-flex flex-wrap ga-3 mb-6">
-            <v-chip color="warning" variant="flat" rounded="pill"> {{ summary.on_leave }} Employees on Leave Today </v-chip>
-            <v-chip color="info" variant="flat" rounded="pill"> {{ summary.pending_approvals }} Pending Approvals </v-chip>
-            <v-chip color="success" variant="flat" rounded="pill"> {{ summary.open_positions }} Open Job Positions </v-chip>
+            <v-chip color="warning" variant="flat" rounded="pill" class="cursor-pointer" @click="router.visit('/hr/leave-management')">
+              {{ summary.on_leave }} Employees on Leave Today
+            </v-chip>
+            <v-chip color="info" variant="flat" rounded="pill" class="cursor-pointer" @click="router.visit('/hr/leave-management')">
+              {{ summary.pending_approvals }} Pending Approvals
+            </v-chip>
+            <v-chip color="success" variant="flat" rounded="pill" class="cursor-pointer" @click="router.visit('/hr/job-openings')">
+              {{ summary.open_positions }} Open Job Positions
+            </v-chip>
           </div>
 
-          <v-btn color="white" class="text-none" variant="outlined" rounded="md"> View HR Overview -> </v-btn>
+          <v-btn color="white" class="text-none" variant="outlined" rounded="md" @click="router.visit('/hr/employees')">
+            View HR Overview ->
+          </v-btn>
         </v-col>
 
         <v-col cols="12" md="4" class="d-flex justify-center justify-md-end">
@@ -94,5 +102,9 @@ onMounted(loadSummary);
   justify-content: center;
   background: rgba(255, 255, 255, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.cursor-pointer {
+  cursor: pointer;
 }
 </style>

@@ -17,8 +17,8 @@ return new class extends Migration
             $table->string('name');
             $table->text('description')->nullable();
             $table->foreignId('department_id')->nullable()->constrained('departments')->nullOnDelete();
-            $table->foreignId('designation_id')->nullable()->constrained('designations')->nullOnDelete();
-            $table->enum('status', ['Active', 'Inactive'])->default('Active');
+            $table->integer('days_to_complete')->default(30);
+            $table->string('status')->default('Active');
             $table->timestamps();
         });
     }
@@ -28,4 +28,3 @@ return new class extends Migration
         Schema::dropIfExists('onboarding_templates');
     }
 };
-

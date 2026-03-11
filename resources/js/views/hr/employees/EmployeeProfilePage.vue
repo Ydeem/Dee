@@ -1,7 +1,9 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
+import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import { appUrl } from '@/utils/appUrl';
 
 const props = defineProps<{ employeeId: number }>();
 
@@ -176,25 +178,24 @@ function exportTable(rows: any[], headers: string[], mapper: (row: any) => strin
     return;
   }
 
-  const html = `
-    <html><head><title>${file}</title></head><body>
-      <h3>${file}</h3>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${rows
-            .map((row) => `<tr>${mapper(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
-            .join('')}
-        </tbody>
-      </table>
-      <script>window.print();</script>
-    </body></html>
-  `;
+  const bodyRows = rows
+    .map((row) => `<tr>${mapper(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`)
+    .join('');
 
   const newWindow = window.open('', '_blank');
   if (newWindow) {
-    newWindow.document.write(html);
+    newWindow.document.open();
+    newWindow.document.write(
+      '<html><head><title>' + file + '</title></head><body>' +
+      '<h3>' + file + '</h3>' +
+      '<table border="1" cellpadding="6" cellspacing="0">' +
+      '<thead><tr>' + headers.map((header) => `<th>${header}</th>`).join('') + '</tr></thead>' +
+      '<tbody>' + bodyRows + '</tbody>' +
+      '</table>' +
+      '</body></html>'
+    );
     newWindow.document.close();
+    newWindow.print();
   }
 }
 
@@ -215,7 +216,7 @@ async function runConfirmedAction() {
 
     if (action === 'deleteEmployee') {
       await axios.delete(`/api/hr/employees/${props.employeeId}`);
-      window.location.href = '/hr/employees';
+      router.visit(appUrl('/hr/employees'));
       return;
     }
 
@@ -263,7 +264,7 @@ onMounted(async () => {
       </div>
 
       <div class="d-flex ga-2 flex-wrap">
-        <v-btn color="primary" prepend-icon="mdi-account-edit-outline" href="/hr/employees">Edit Employee</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-account-edit-outline" @click="router.visit(appUrl(`/hr/employees/${props.employeeId}/edit`))">Edit Employee</v-btn>
         <v-btn variant="outlined" prepend-icon="mdi-message-text-outline" @click="placeholderAction('Message')">Send Message</v-btn>
         <v-menu>
           <template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template>

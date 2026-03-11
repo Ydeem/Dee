@@ -1,39 +1,29 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import axios from 'axios';
+import { router } from '@inertiajs/vue3';
 
 type Hire = {
-  name: string;
-  avatar?: string;
-  department: string;
-  join_date: string;
-  status: 'Active' | 'Probation' | 'Onboarding' | string;
-};
+  id: number
+  full_name: string
+  avatar_url?: string | null
+  initials: string
+  department: string
+  join_date: string
+  status: string
+}
 
 type HrEvent = {
-  category: 'Meeting' | 'Deadline' | 'Review' | 'Holiday' | string;
-  title: string;
-  date: string;
-};
+  category: string
+  color?: string
+  title: string
+  date: string
+}
 
 const isLoadingHires = ref(true);
 const isLoadingEvents = ref(true);
-
-const recentHires = ref<Hire[]>([
-  { name: 'Sarah Oti', department: 'People Operations', join_date: 'Mar 03, 2026', status: 'Onboarding' },
-  { name: 'Daniel Kofi', department: 'Engineering', join_date: 'Mar 01, 2026', status: 'Active' },
-  { name: 'Amanda Boateng', department: 'Finance', join_date: 'Feb 26, 2026', status: 'Probation' },
-  { name: 'Kwame Asare', department: 'Customer Success', join_date: 'Feb 25, 2026', status: 'Active' },
-  { name: 'Naana Mensah', department: 'Product', join_date: 'Feb 22, 2026', status: 'Onboarding' }
-]);
-
-const upcomingEvents = ref<HrEvent[]>([
-  { category: 'Meeting', title: 'All-hands HR Meeting', date: 'Mar 12, 2026' },
-  { category: 'Deadline', title: 'Payroll Cutoff', date: 'Mar 14, 2026' },
-  { category: 'Review', title: 'Q1 Performance Reviews', date: 'Mar 20, 2026' },
-  { category: 'Holiday', title: 'Public Holiday', date: 'Mar 25, 2026' },
-  { category: 'Meeting', title: 'Onboarding Kickoff', date: 'Mar 27, 2026' }
-]);
+const recentHires = ref<Hire[]>([]);
+const upcomingEvents = ref<HrEvent[]>([]);
 
 function statusColor(status: string) {
   if (status === 'Active') return 'success';
@@ -42,60 +32,49 @@ function statusColor(status: string) {
 }
 
 function categoryColor(category: string) {
-  if (category === 'Meeting') return 'primary';
+  if (category === 'Leave') return 'primary';
   if (category === 'Deadline') return 'error';
-  if (category === 'Review') return 'warning';
-  return 'success';
+  if (category === 'Onboarding') return 'success';
+  return 'warning';
 }
 
-function initials(name: string) {
-  const segments = name.split(' ').filter(Boolean);
-  return segments.slice(0, 2).map((segment) => segment[0]).join('').toUpperCase();
+function eventRoute(category: string) {
+  if (category === 'Leave') return '/hr/leave-management';
+  if (category === 'Onboarding') return '/hr/onboarding';
+  return '/hr/payroll';
 }
 
-async function loadRecentHires() {
+async function fetchRecentHires() {
   isLoadingHires.value = true;
+
   try {
     const { data } = await axios.get('/api/hr/dashboard/recent-hires');
-    const hires = Array.isArray(data) ? data : data?.hires;
-    if (Array.isArray(hires) && hires.length) {
-      recentHires.value = hires.slice(0, 5).map((hire: any) => ({
-        name: hire.name ?? hire.full_name ?? 'Unknown',
-        avatar: hire.avatar,
-        department: hire.department ?? 'N/A',
-        join_date: hire.join_date ?? hire.joinDate ?? '-',
-        status: hire.status ?? 'Onboarding'
-      }));
-    }
+    recentHires.value = Array.isArray(data?.recent_hires) ? data.recent_hires : [];
   } catch (error) {
-    recentHires.value = recentHires.value.slice(0, 5);
+    console.error('Recent hires fetch failed', error);
+    recentHires.value = [];
   } finally {
     isLoadingHires.value = false;
   }
 }
 
-async function loadUpcomingEvents() {
+async function fetchUpcomingEvents() {
   isLoadingEvents.value = true;
+
   try {
     const { data } = await axios.get('/api/hr/dashboard/upcoming-events');
-    const events = Array.isArray(data) ? data : data?.events;
-    if (Array.isArray(events) && events.length) {
-      upcomingEvents.value = events.slice(0, 5).map((event: any) => ({
-        category: event.category ?? 'Meeting',
-        title: event.title ?? 'Untitled Event',
-        date: event.date ?? '-'
-      }));
-    }
+    upcomingEvents.value = Array.isArray(data?.events) ? data.events : [];
   } catch (error) {
-    upcomingEvents.value = upcomingEvents.value.slice(0, 5);
+    console.error('Events fetch failed', error);
+    upcomingEvents.value = [];
   } finally {
     isLoadingEvents.value = false;
   }
 }
 
 onMounted(() => {
-  loadRecentHires();
-  loadUpcomingEvents();
+  fetchRecentHires();
+  fetchUpcomingEvents();
 });
 </script>
 
@@ -118,14 +97,17 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(hire, index) in recentHires" :key="index">
+            <tr v-if="!recentHires.length">
+              <td colspan="4" class="text-center text-lightText py-6">No recent hires available.</td>
+            </tr>
+            <tr v-for="hire in recentHires" :key="hire.id" class="cursor-pointer" @click="router.visit(`/hr/employees/${hire.id}`)">
               <td>
                 <div class="d-flex align-center">
                   <v-avatar size="34" color="primary" variant="tonal" class="me-2">
-                    <img v-if="hire.avatar" :src="hire.avatar" :alt="hire.name" />
-                    <span v-else class="text-caption font-weight-bold">{{ initials(hire.name) }}</span>
+                    <img v-if="hire.avatar_url" :src="hire.avatar_url" :alt="hire.full_name" />
+                    <span v-else class="text-caption font-weight-bold">{{ hire.initials }}</span>
                   </v-avatar>
-                  <span class="font-weight-medium">{{ hire.name }}</span>
+                  <span class="font-weight-medium">{{ hire.full_name }}</span>
                 </div>
               </td>
               <td>{{ hire.department }}</td>
@@ -137,7 +119,7 @@ onMounted(() => {
           </tbody>
         </v-table>
         <v-card-actions class="justify-end px-6 pb-5">
-          <a href="#" class="text-primary text-decoration-none font-weight-medium">View All Employees -></a>
+          <button class="link-button text-primary font-weight-medium" @click="router.visit('/hr/employees')">View All Employees -></button>
         </v-card-actions>
       </v-card>
     </v-col>
@@ -150,9 +132,18 @@ onMounted(() => {
         </v-card-item>
         <v-divider />
         <v-list class="py-2 px-4">
-          <v-list-item v-for="(event, index) in upcomingEvents" :key="index" rounded="md" class="px-2">
-            <template v-slot:prepend>
-              <v-chip :color="categoryColor(event.category)" variant="tonal" size="small" rounded="md" class="me-2">
+          <v-list-item v-if="!upcomingEvents.length">
+            <v-list-item-title class="text-lightText">No upcoming HR events.</v-list-item-title>
+          </v-list-item>
+          <v-list-item
+            v-for="(event, index) in upcomingEvents"
+            :key="index"
+            rounded="md"
+            class="px-2 cursor-pointer"
+            @click="router.visit(eventRoute(event.category))"
+          >
+            <template #prepend>
+              <v-chip :color="event.color ?? categoryColor(event.category)" variant="tonal" size="small" rounded="md" class="me-2">
                 {{ event.category }}
               </v-chip>
             </template>
@@ -161,7 +152,7 @@ onMounted(() => {
           </v-list-item>
         </v-list>
         <v-card-actions class="justify-end px-6 pb-5">
-          <a href="#" class="text-primary text-decoration-none font-weight-medium">View HR Calendar -></a>
+          <button class="link-button text-primary font-weight-medium" @click="router.visit('/hr/attendance')">View HR Calendar -></button>
         </v-card-actions>
       </v-card>
     </v-col>
@@ -171,5 +162,16 @@ onMounted(() => {
 <style lang="scss">
 .hr-card-shadow {
   box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.link-button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 </style>
