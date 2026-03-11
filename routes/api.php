@@ -15,6 +15,7 @@ use App\Http\Controllers\HR\PayrollController;
 use App\Http\Controllers\HR\PayslipController;
 use App\Http\Controllers\HR\ReportController;
 use App\Http\Controllers\HR\RoleController;
+use App\Http\Controllers\HR\SearchController;
 use App\Http\Controllers\HR\ShiftController;
 use App\Http\Controllers\HRDashboardController;
 use Illuminate\Support\Facades\Route;
@@ -183,6 +184,7 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::get('/reports/payroll', [ReportController::class, 'payroll']);
         Route::get('/reports/recruitment', [ReportController::class, 'recruitment']);
         Route::get('/reports/expenses', [ReportController::class, 'expenses']);
+        Route::get('/search', [SearchController::class, 'search']);
 
         Route::get('/roles', [RoleController::class, 'index']);
         Route::post('/roles', [RoleController::class, 'store']);

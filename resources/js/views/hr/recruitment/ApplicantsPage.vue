@@ -471,7 +471,9 @@ onMounted(async () => {
               <td>
                 <v-menu>
                   <template #activator="{ props }">
-                    <v-btn v-bind="props" icon variant="text" size="small"><v-icon>mdi-dots-vertical</v-icon></v-btn>
+                    <v-btn v-bind="props" icon variant="text" size="small">
+                      <img src="/assets/images/icons/action-menu.svg" alt="Actions" class="action-menu-icon" />
+                    </v-btn>
                   </template>
                   <v-list density="compact">
                     <v-list-item prepend-icon="mdi-eye" title="View Details" @click="openViewDrawer(app)" />

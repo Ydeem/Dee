@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\HR\DashboardController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -63,12 +64,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/hr/employees/{id}', fn ($id) => Inertia::render('HR/Employees/Show', ['id' => (int) $id]))->middleware('permission:view employees')->name('hr.employees.show');
 
     Route::prefix('api/hr/dashboard')->group(function () {
-        Route::get('summary', [\App\Http\Controllers\HR\HRDashboardController::class, 'summary']);
-        Route::get('stats', [\App\Http\Controllers\HR\HRDashboardController::class, 'stats']);
-        Route::get('attendance-chart', [\App\Http\Controllers\HR\HRDashboardController::class, 'attendanceChart']);
-        Route::get('pending-actions', [\App\Http\Controllers\HR\HRDashboardController::class, 'pendingActions']);
-        Route::get('recent-hires', [\App\Http\Controllers\HR\HRDashboardController::class, 'recentHires']);
-        Route::get('upcoming-events', [\App\Http\Controllers\HR\HRDashboardController::class, 'upcomingEvents']);
+        Route::get('summary', [DashboardController::class, 'summary']);
+        Route::get('stats', [DashboardController::class, 'stats']);
+        Route::get('attendance-chart', [DashboardController::class, 'attendanceChart']);
+        Route::get('pending-actions', [DashboardController::class, 'pendingActions']);
+        Route::get('recent-hires', [DashboardController::class, 'recentHires']);
+        Route::get('upcoming-events', [DashboardController::class, 'upcomingEvents']);
     });
 
 });

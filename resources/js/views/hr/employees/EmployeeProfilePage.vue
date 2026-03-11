@@ -267,7 +267,11 @@ onMounted(async () => {
         <v-btn color="primary" prepend-icon="mdi-account-edit-outline" @click="router.visit(appUrl(`/hr/employees/${props.employeeId}/edit`))">Edit Employee</v-btn>
         <v-btn variant="outlined" prepend-icon="mdi-message-text-outline" @click="placeholderAction('Message')">Send Message</v-btn>
         <v-menu>
-          <template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template>
+          <template #activator="{ props }">
+            <v-btn icon variant="text" v-bind="props">
+              <img src="/assets/images/icons/action-menu.svg" alt="Actions" class="action-menu-icon" />
+            </v-btn>
+          </template>
           <v-list>
             <v-list-item title="Deactivate" @click="openConfirm('Deactivate Employee', 'Set this employee to Inactive?', 'setStatus', { status: 'Inactive' })" />
             <v-list-item title="Reset Password" @click="placeholderAction('Reset password')" />

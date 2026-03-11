@@ -10,6 +10,7 @@ import ProfileDD from './ProfileDD.vue';
 import Searchbar from './SearchBarPanel.vue';
 
 const customizer = useCustomizerStore();
+const hamburgerIcon = '/assets/images/icons/hamburger-menu.svg';
 const quickActions = [
   { title: 'Add Employee', route: '/hr/employees/create' },
   { title: 'Post Job', route: '/hr/job-openings' },
@@ -31,9 +32,9 @@ watch(priority, (newPriority) => {
       aria-label="sidebar button"
       rounded="sm"
       variant="tonal"
-      @click.stop="customizer.SET_MINI_SIDEBAR(!customizer.mini_sidebar)"
+      @click.stop="customizer.SET_SIDEBAR_DRAWER()"
     >
-      <SvgSprite name="custom-menu-outline" style="width: 24px; height: 24px" />
+      <img :src="hamburgerIcon" alt="Open menu" class="hamburger-icon" />
     </v-btn>
     <v-btn
       class="hidden-lg-and-up text-secondary"
@@ -41,10 +42,10 @@ watch(priority, (newPriority) => {
       icon
       rounded="sm"
       variant="text"
-      @click.stop="customizer.SET_SIDEBAR_DRAWER"
+      @click.stop="customizer.SET_SIDEBAR_DRAWER()"
       size="small"
     >
-      <SvgSprite name="custom-menu-outline" style="width: 24px; height: 24px" />
+      <img :src="hamburgerIcon" alt="Open menu" class="hamburger-icon" />
     </v-btn>
 
     <!-- search mobile -->
@@ -57,13 +58,7 @@ watch(priority, (newPriority) => {
         </v-btn>
       </template>
       <v-sheet class="search-sheet v-col-12 pa-0" elevation="24" width="320" rounded="md">
-        <v-text-field persistent-placeholder placeholder="Search employees, leaves, payroll..." rounded="md" color="primary" variant="solo" hide-details>
-          <template v-slot:prepend-inner>
-            <div class="text-lightText d-flex align-center">
-              <SvgSprite name="custom-search" style="width: 16px; height: 16px" />
-            </div>
-          </template>
-        </v-text-field>
+        <Searchbar />
       </v-sheet>
     </v-menu>
 
@@ -125,3 +120,11 @@ watch(priority, (newPriority) => {
     </v-menu>
   </v-app-bar>
 </template>
+
+<style scoped>
+.hamburger-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+</style>

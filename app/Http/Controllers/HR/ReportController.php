@@ -12,30 +12,60 @@ use App\Models\HR\JobOpening;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\LeaveType;
 use App\Models\HR\PayrollRun;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+
 class ReportController extends Controller
 {
+    private function payrollMonthColumn(): string
+    {
+        return Schema::hasColumn('payroll_runs', 'month')
+            ? 'month'
+            : 'period_month';
+    }
+
+    private function payrollYearColumn(): string
+    {
+        return Schema::hasColumn('payroll_runs', 'year')
+            ? 'year'
+            : 'period_year';
+    }
+
+    private function expensePendingStatuses(): array
+    {
+        return ['Pending', 'Submitted', 'Under Review'];
+    }
+
     public function workforce(Request $request)
     {
         $year = (int) ($request->year ?? now()->year);
         $month = (int) ($request->month ?? now()->month);
 
+        $monthlyHires = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $monthlyHires[] = [
+                'month' => $m,
+                'label' => Carbon::create($year, $m, 1)->format('M'),
+                'count' => Employee::whereYear('created_at', $year)
+                    ->whereMonth('created_at', $m)
+                    ->count(),
+            ];
+        }
+
         return response()->json([
             'by_department' => Department::withCount([
                 'employees as total',
                 'employees as active' => fn ($q) => $q->where('employment_status', 'Active'),
-            ])->get(['id', 'name']),
+            ])->orderByDesc('total')->get(['id', 'name']),
             'by_type' => Employee::where('employment_status', 'Active')
                 ->selectRaw('employment_type, count(*) as total')
                 ->groupBy('employment_type')
                 ->get(),
-            'monthly_hires' => Employee::whereYear('created_at', $year)
-                ->selectRaw('MONTH(created_at) as month, COUNT(*) as count')
-                ->groupBy('month')
-                ->orderBy('month')
-                ->get(),
+            'monthly_hires' => $monthlyHires,
             'by_gender' => Employee::where('employment_status', 'Active')
                 ->selectRaw('gender, count(*) as total')
+                ->whereNotNull('gender')
                 ->groupBy('gender')
                 ->get(),
             'total_active' => Employee::where('employment_status', 'Active')->count(),
@@ -43,6 +73,7 @@ class ReportController extends Controller
             'new_this_month' => Employee::whereMonth('created_at', $month)
                 ->whereYear('created_at', $year)
                 ->count(),
+            'total_departments' => Department::count(),
         ]);
     }
 
@@ -63,14 +94,39 @@ class ReportController extends Controller
                 ->orderBy('date')
                 ->get(),
             'by_department' => Department::with([
-                'employees.attendances' => fn ($q) =>
-                    $q->whereMonth('date', $month)->whereYear('date', $year),
-            ])->get()->map(fn ($dept) => [
-                'department' => $dept->name,
-                'present_rate' => round($dept->employees->flatMap(fn ($employee) => $employee->attendances)->avg(
-                    fn ($attendance) => $attendance->status === 'Present' ? 100 : 0
-                ) ?? 0, 2),
-            ])->values(),
+                'employees' => fn ($q) => $q->select('id', 'department_id'),
+            ])->get()->map(function ($dept) use ($month, $year) {
+                $employeeIds = $dept->employees->pluck('id');
+
+                if ($employeeIds->isEmpty()) {
+                    return [
+                        'department' => $dept->name,
+                        'present_rate' => 0,
+                        'absent_rate' => 0,
+                    ];
+                }
+
+                $total = Attendance::whereIn('employee_id', $employeeIds)
+                    ->whereMonth('date', $month)
+                    ->whereYear('date', $year)
+                    ->count();
+
+                $present = Attendance::whereIn('employee_id', $employeeIds)
+                    ->whereMonth('date', $month)
+                    ->whereYear('date', $year)
+                    ->whereIn('status', ['Present', 'Late'])
+                    ->count();
+
+                return [
+                    'department' => $dept->name,
+                    'present_rate' => $total > 0
+                        ? round(($present / $total) * 100)
+                        : 0,
+                    'absent_rate' => $total > 0
+                        ? round((($total - $present) / $total) * 100)
+                        : 0,
+                ];
+            })->filter(fn ($row) => $row['present_rate'] > 0 || $row['absent_rate'] > 0)->values(),
             'totals' => [
                 'present' => Attendance::whereMonth('date', $month)->whereYear('date', $year)->where('status', 'Present')->count(),
                 'absent' => Attendance::whereMonth('date', $month)->whereYear('date', $year)->where('status', 'Absent')->count(),
@@ -83,51 +139,88 @@ class ReportController extends Controller
     {
         $year = (int) ($request->year ?? now()->year);
 
+        $monthly = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $monthly[] = [
+                'month' => $m,
+                'label' => Carbon::create($year, $m, 1)->format('M'),
+                'days' => (int) LeaveRequest::where('status', 'Approved')
+                    ->whereYear('from_date', $year)
+                    ->whereMonth('from_date', $m)
+                    ->sum('days_requested'),
+            ];
+        }
+
         return response()->json([
-            'by_type' => LeaveType::leftJoin('leave_requests', function ($join) use ($year) {
-                $join->on('leave_types.id', '=', 'leave_requests.leave_type_id')
-                    ->where('leave_requests.status', '=', 'Approved')
-                    ->whereYear('leave_requests.from_date', '=', $year);
-            })
-                ->groupBy('leave_types.id', 'leave_types.name')
-                ->selectRaw('leave_types.id, leave_types.name, COALESCE(SUM(leave_requests.days_requested), 0) as total_days, COUNT(leave_requests.id) as total_requests')
-                ->orderBy('leave_types.name')
-                ->get(),
-            'monthly' => LeaveRequest::where('status', 'Approved')
-                ->whereYear('from_date', $year)
-                ->selectRaw('MONTH(from_date) as month, SUM(days_requested) as days')
-                ->groupBy('month')
-                ->orderBy('month')
-                ->get(),
+            'by_type' => LeaveType::withCount([
+                'leaveRequests as total_requests',
+                'leaveRequests as approved' => fn ($q) => $q
+                    ->where('status', 'Approved')
+                    ->whereYear('from_date', $year),
+            ])->withSum([
+                'leaveRequests as total_days' => fn ($q) => $q
+                    ->where('status', 'Approved')
+                    ->whereYear('from_date', $year),
+            ], 'days_requested')->get(['id', 'name', 'color']),
+            'monthly' => $monthly,
             'by_department' => Department::with([
                 'employees.leaveRequests' => fn ($q) =>
                     $q->where('status', 'Approved')->whereYear('from_date', $year),
             ])->get()->map(fn ($dept) => [
                 'department' => $dept->name,
                 'total_days' => (float) $dept->employees->flatMap(fn ($employee) => $employee->leaveRequests)->sum('days_requested'),
-            ])->values(),
+            ])->filter(fn ($row) => $row['total_days'] > 0)->values(),
             'pending_count' => LeaveRequest::where('status', 'Pending')->count(),
             'total_days_approved' => (float) LeaveRequest::where('status', 'Approved')->whereYear('from_date', $year)->sum('days_requested'),
+            'total_days_year' => (float) LeaveRequest::where('status', 'Approved')->whereYear('from_date', $year)->sum('days_requested'),
         ]);
     }
 
     public function payroll(Request $request)
     {
         $year = (int) ($request->year ?? now()->year);
+        $yearColumn = $this->payrollYearColumn();
+        $monthColumn = $this->payrollMonthColumn();
+        $paidStatuses = ['Paid', 'Approved'];
+
+        $monthly = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $run = PayrollRun::where($yearColumn, $year)
+                ->where($monthColumn, $m)
+                ->whereIn('status', $paidStatuses)
+                ->first();
+
+            $monthly[] = [
+                'month' => $m,
+                'period_month' => $m,
+                'label' => Carbon::create($year, $m, 1)->format('M'),
+                'total_gross' => (float) ($run?->total_gross ?? 0),
+                'total_net' => (float) ($run?->total_net ?? 0),
+                'total_deductions' => (float) ($run?->total_deductions ?? 0),
+                'employee_count' => (int) ($run?->employee_count ?? 0),
+                'gross' => (float) ($run?->total_gross ?? 0),
+                'net' => (float) ($run?->total_net ?? 0),
+                'deductions' => (float) ($run?->total_deductions ?? 0),
+                'headcount' => (int) ($run?->employee_count ?? 0),
+            ];
+        }
 
         return response()->json([
-            'monthly' => PayrollRun::where('period_year', $year)
-                ->where('status', 'Paid')
-                ->orderBy('period_month')
-                ->get(['period_month', 'total_gross', 'total_deductions', 'total_net', 'employee_count']),
-            'year_total_gross' => (float) PayrollRun::where('period_year', $year)->where('status', 'Paid')->sum('total_gross'),
-            'year_total_net' => (float) PayrollRun::where('period_year', $year)->where('status', 'Paid')->sum('total_net'),
-            'year_total_deductions' => (float) PayrollRun::where('period_year', $year)->where('status', 'Paid')->sum('total_deductions'),
-            'by_department' => Department::with(['employees.salaryStructure'])->get()->map(fn ($dept) => [
+            'monthly' => $monthly,
+            'year_total_gross' => (float) PayrollRun::where($yearColumn, $year)->whereIn('status', $paidStatuses)->sum('total_gross'),
+            'year_total_net' => (float) PayrollRun::where($yearColumn, $year)->whereIn('status', $paidStatuses)->sum('total_net'),
+            'year_total_deductions' => (float) PayrollRun::where($yearColumn, $year)->whereIn('status', $paidStatuses)->sum('total_deductions'),
+            'year_deductions' => (float) PayrollRun::where($yearColumn, $year)->whereIn('status', $paidStatuses)->sum('total_deductions'),
+            'by_department' => Department::with([
+                'employees' => fn ($q) => $q->where('employment_status', 'Active')->whereNotNull('basic_salary'),
+            ])->get()->map(fn ($dept) => [
                 'department' => $dept->name,
-                'avg_salary' => round($dept->employees->map(fn ($employee) => $employee->salaryStructure?->basic_salary)->filter()->avg() ?? 0, 2),
+                'avg_salary' => $dept->employees->isEmpty()
+                    ? 0
+                    : round((float) $dept->employees->avg('basic_salary'), 2),
                 'total_headcount' => $dept->employees->count(),
-            ])->values(),
+                'headcount' => $dept->employees->count(),
+            ])->filter(fn ($row) => $row['total_headcount'] > 0)->values(),
         ]);
     }
 
@@ -135,12 +228,20 @@ class ReportController extends Controller
     {
         $year = (int) ($request->year ?? now()->year);
 
+        $monthly = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $monthly[] = [
+                'month' => $m,
+                'label' => Carbon::create($year, $m, 1)->format('M'),
+                'total' => Applicant::whereYear('created_at', $year)
+                    ->whereMonth('created_at', $m)
+                    ->count(),
+            ];
+        }
+
         return response()->json([
-            'monthly_applications' => Applicant::whereYear('created_at', $year)
-                ->selectRaw('MONTH(created_at) as month, COUNT(*) as total')
-                ->groupBy('month')
-                ->orderBy('month')
-                ->get(),
+            'monthly' => $monthly,
+            'monthly_applications' => $monthly,
             'by_status' => Applicant::selectRaw('status, COUNT(*) as total')
                 ->groupBy('status')
                 ->get(),
@@ -159,28 +260,38 @@ class ReportController extends Controller
     {
         $year = (int) ($request->year ?? now()->year);
 
+        $monthly = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $monthly[] = [
+                'month' => $m,
+                'label' => Carbon::create($year, $m, 1)->format('M'),
+                'total' => (float) Expense::whereIn('status', ['Approved', 'Paid'])
+                    ->whereYear('expense_date', $year)
+                    ->whereMonth('expense_date', $m)
+                    ->sum('amount'),
+            ];
+        }
+
+        $byCategory = Expense::whereIn('status', ['Approved', 'Paid'])
+            ->whereYear('expense_date', $year)
+            ->selectRaw('category, SUM(amount) as total, COUNT(*) as count')
+            ->groupBy('category')
+            ->orderByDesc('total')
+            ->get();
+
         return response()->json([
-            'monthly' => Expense::whereYear('expense_date', $year)
-                ->whereIn('status', ['Approved', 'Paid'])
-                ->selectRaw('MONTH(expense_date) as month, SUM(amount) as total')
-                ->groupBy('month')
-                ->orderBy('month')
-                ->get(),
-            'by_category' => Expense::whereIn('status', ['Approved', 'Paid'])
-                ->whereYear('expense_date', $year)
-                ->selectRaw('category, SUM(amount) as total, COUNT(*) as count')
-                ->groupBy('category')
-                ->orderByDesc('total')
-                ->get(),
+            'monthly' => $monthly,
+            'by_category' => $byCategory,
             'by_department' => Department::with([
                 'employees.expenses' => fn ($q) =>
                     $q->whereIn('status', ['Approved', 'Paid'])->whereYear('expense_date', $year),
             ])->get()->map(fn ($dept) => [
                 'department' => $dept->name,
                 'total' => (float) $dept->employees->flatMap(fn ($employee) => $employee->expenses)->sum('amount'),
-            ])->values(),
+            ])->filter(fn ($row) => $row['total'] > 0)->values(),
             'total_year' => (float) Expense::whereIn('status', ['Approved', 'Paid'])->whereYear('expense_date', $year)->sum('amount'),
-            'pending_count' => Expense::whereIn('status', ['Submitted', 'Under Review'])->count(),
+            'pending_count' => Expense::whereIn('status', $this->expensePendingStatuses())->count(),
+            'top_category' => $byCategory->first()?->category ?? 'N/A',
         ]);
     }
 }

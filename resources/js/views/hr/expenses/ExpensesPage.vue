@@ -979,7 +979,9 @@ onBeforeUnmount(() => {
           <template #item.actions="{ item }">
             <v-menu>
               <template #activator="{ props }">
-                <v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" />
+                <v-btn icon variant="text" v-bind="props">
+                  <img src="/assets/images/icons/action-menu.svg" alt="Actions" class="action-menu-icon" />
+                </v-btn>
               </template>
               <v-list density="compact">
                 <v-list-item title="View Details" @click="viewDetails(rowData(item))" />

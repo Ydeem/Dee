@@ -585,7 +585,11 @@ onMounted(async () => {
           </template>
           <template #item.actions="{ item }">
             <v-menu>
-              <template #activator="{ props }"><v-btn icon="mdi-dots-vertical" variant="text" v-bind="props" /></template>
+              <template #activator="{ props }">
+                <v-btn icon variant="text" v-bind="props">
+                  <img src="/assets/images/icons/action-menu.svg" alt="Actions" class="action-menu-icon" />
+                </v-btn>
+              </template>
               <v-list>
                 <v-list-item title="View Profile" @click="viewProfile(rowData(item))" />
                 <v-list-item title="Edit Employee" @click="openEditEmployeePage(rowData(item))" />

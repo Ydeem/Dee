@@ -261,16 +261,14 @@ async function fetchExpenses() {
   }
 }
 
-async function fetchAllReports() {
-  await Promise.all([
-    fetchWorkforce(),
-    fetchAttendance(),
-    fetchLeave(),
-    fetchPayroll(),
-    fetchRecruitment(),
-    fetchExpenses()
-  ]);
-}
+const tabFetchMap: Record<string, () => Promise<void>> = {
+  workforce: fetchWorkforce,
+  attendance: fetchAttendance,
+  leave: fetchLeave,
+  payroll: fetchPayroll,
+  recruitment: fetchRecruitment,
+  expenses: fetchExpenses
+};
 
 const workforceDepartmentSeries = computed(() => workforce.value.by_department.map((item) => Number(item.active ?? item.total ?? 0)));
 const workforceDepartmentOptions = computed(() =>
@@ -415,19 +413,28 @@ const topExpenseCategory = computed(() => expenses.value.by_category[0]?.categor
 watch(
   () => filters.year,
   () => {
-    fetchAllReports();
+    tabFetchMap[activeTab.value]?.();
   }
 );
 
 watch(
   () => filters.month,
   () => {
-    fetchAttendance();
+    if (activeTab.value === 'attendance') {
+      fetchAttendance();
+    }
+  }
+);
+
+watch(
+  activeTab,
+  (tab) => {
+    tabFetchMap[tab]?.();
   }
 );
 
 onMounted(() => {
-  fetchAllReports();
+  fetchWorkforce();
 });
 </script>
 

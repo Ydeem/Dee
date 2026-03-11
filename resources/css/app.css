@@ -9,3 +9,10 @@
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
+
+.action-menu-icon {
+    width: 18px;
+    height: 18px;
+    display: block;
+    opacity: 0.9;
+}

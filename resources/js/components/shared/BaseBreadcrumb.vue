@@ -57,8 +57,6 @@ const normalizedBreadcrumbs = computed(() =>
                 </span>
               </template>
             </v-breadcrumbs>
-            <h2 class="text-h2 font-weight-bold mb-0">{{ props.title }}</h2>
-            <p v-if="props.subtitle" class="text-subtitle-1 text-lightText mt-2 mb-0">{{ props.subtitle }}</p>
           </v-col>
         </v-row>
       </v-card>
