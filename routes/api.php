@@ -170,6 +170,7 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::get('/payroll/{id}/payslips', [PayrollController::class, 'payslips']);
 
         Route::get('/settings', [HrSettingsController::class, 'index']);
+        Route::post('/settings', [HrSettingsController::class, 'saveLegacy']);
         Route::post('/settings/company', [HrSettingsController::class, 'saveCompany']);
         Route::post('/settings/payroll', [HrSettingsController::class, 'savePayroll']);
         Route::post('/settings/leave', [HrSettingsController::class, 'saveLeave']);

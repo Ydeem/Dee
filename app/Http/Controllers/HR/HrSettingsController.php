@@ -220,4 +220,70 @@ class HrSettingsController extends Controller
             'message' => 'Recruitment settings saved.',
         ]);
     }
+
+    /**
+     * Backward-compatible save endpoint for legacy UI that submits:
+     * { settings: { key: value, ... } }
+     */
+    public function saveLegacy(Request $request)
+    {
+        $request->validate([
+            'settings' => 'required|array',
+        ]);
+
+        foreach ($request->input('settings', []) as $key => $value) {
+            $existing = HrSetting::query()->where('key', $key)->first();
+            $group = $existing?->group ?? $this->inferGroupFromKey((string) $key);
+
+            HrSetting::updateOrCreate(
+                ['key' => (string) $key],
+                [
+                    'value' => is_null($value) ? null : (string) $value,
+                    'group' => $group,
+                ]
+            );
+        }
+
+        return response()->json([
+            'message' => 'Settings saved successfully.',
+        ]);
+    }
+
+    private function inferGroupFromKey(string $key): string
+    {
+        if (str_starts_with($key, 'company_') || in_array($key, [
+            'hr_email', 'default_currency', 'timezone', 'fiscal_year_start',
+        ], true)) {
+            return 'company';
+        }
+
+        if (str_starts_with($key, 'pay_') || str_starts_with($key, 'ssnit_') || in_array($key, [
+            'overtime_rate', 'payslip_template', 'payroll_approval_required', 'payroll_day', 'enable_overtime',
+            'payslip_footer',
+        ], true)) {
+            return 'payroll';
+        }
+
+        if (str_starts_with($key, 'leave_') || in_array($key, [
+            'auto_reject_after_days', 'allow_leave_carry_forward', 'leave_year_start', 'max_consecutive_leave',
+            'auto_approve_leave',
+        ], true)) {
+            return 'leave';
+        }
+
+        if (str_starts_with($key, 'work_') || str_contains($key, 'attendance') || in_array($key, [
+            'late_threshold_mins', 'lateness_threshold_mins', 'overtime_threshold_mins', 'enable_geolocation',
+            'weekend_days', 'working_hours_per_day', 'allow_remote_checkin', 'attendance_geofencing',
+        ], true)) {
+            return 'attendance';
+        }
+
+        if (str_contains($key, 'resume') || str_contains($key, 'pipeline') || in_array($key, [
+            'careers_page_enabled', 'notify_on_application', 'auto_reject_days', 'require_cover_letter',
+        ], true)) {
+            return 'recruitment';
+        }
+
+        return 'general';
+    }
 }

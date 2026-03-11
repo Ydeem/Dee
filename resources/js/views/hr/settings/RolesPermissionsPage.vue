@@ -141,21 +141,6 @@ const fallbackPermissions: Record<string, Permission[]> = {
 
 const allFallbackPermissionNames = Object.values(fallbackPermissions).flat().map((item) => item.name);
 
-const fallbackRoles: Role[] = [
-  { id: 1, name: 'HR Admin', users_count: 1, permissions: Object.values(fallbackPermissions).flat() },
-  { id: 2, name: 'HR Manager', users_count: 2, permissions: allFallbackPermissionNames.filter((item) => !item.includes('delete') && item !== 'edit hr settings' && item !== 'manage roles' && item !== 'manage permissions').map((name, index) => ({ id: 100 + index, name })) },
-  { id: 3, name: 'Payroll Officer', users_count: 1, permissions: ['view hr dashboard', 'view employees', 'view payroll', 'create payroll', 'process payroll', 'approve payroll', 'view payslips', 'edit payslips', 'manage salary structures', 'view expenses', 'approve expenses', 'reject expenses', 'mark expenses paid', 'view reports', 'export reports'].map((name, index) => ({ id: 200 + index, name })) },
-  { id: 4, name: 'Recruiter', users_count: 1, permissions: ['view hr dashboard', 'view employees', 'view job openings', 'create job openings', 'edit job openings', 'view applicants', 'create applicants', 'edit applicants', 'move applicant stage', 'convert to employee', 'view onboarding', 'manage onboarding', 'view reports'].map((name, index) => ({ id: 300 + index, name })) },
-  { id: 5, name: 'Employee', users_count: 6, permissions: ['view hr dashboard', 'view employees', 'view leave requests', 'create leave requests', 'view attendance', 'view payslips', 'create expenses', 'view expenses'].map((name, index) => ({ id: 400 + index, name })) },
-  { id: 6, name: 'Supervisor', users_count: 2, permissions: ['view hr dashboard', 'view employees', 'view attendance', 'create attendance', 'view leave requests', 'approve leave requests', 'reject leave requests', 'view shifts', 'assign shifts', 'view reports'].map((name, index) => ({ id: 500 + index, name })) }
-];
-
-const fallbackUsers: UserWithRole[] = [
-  { id: 1, name: 'Pontian', email: 'pontian@npontu.com', roles: [{ name: 'HR Admin', permissions: fallbackRoles[0].permissions }], last_login_at: '2026-03-10 08:42' },
-  { id: 2, name: 'Sarah Oti', email: 'sarah.oti@example.com', roles: [{ name: 'HR Manager', permissions: fallbackRoles[1].permissions }], last_login_at: '2026-03-09 14:10' },
-  { id: 3, name: 'Daniel Kofi', email: 'daniel.kofi@example.com', roles: [{ name: 'Payroll Officer', permissions: fallbackRoles[2].permissions }], last_login_at: null }
-];
-
 const roleHeaders = [
   { title: 'User', key: 'user', sortable: false },
   { title: 'Current Role', key: 'role', sortable: false },
@@ -220,8 +205,8 @@ const roleTemplates: Record<string, string[]> = {
   Employee: ['view hr dashboard', 'view employees', 'view leave requests', 'create leave requests', 'view attendance', 'view payslips', 'create expenses', 'view expenses']
 };
 
-const canManageRoles = computed(() => can('manage roles') || isAdmin());
-const canAssignRoles = computed(() => can('assign roles') || isAdmin());
+const canManageRoles = computed(() => can('manage roles') || can('manage permissions') || isAdmin());
+const canAssignRoles = computed(() => can('assign roles') || can('manage roles') || isAdmin());
 const totalPermissions = computed(() => Object.values(permissionsByGroup.value).flat().length);
 const usersWithRoles = computed(() => users.value.filter((user) => user.roles.length > 0).length);
 const selectedPermissionsCount = computed(() => roleForm.permissions.length);
@@ -252,8 +237,15 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function roleInitials(name: string) {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (!words.length) return 'RL';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
 function canModifyRole(role: Role) {
-  return !['HR Admin', 'super-admin'].includes(role.name);
+  return !['super-admin'].includes(role.name);
 }
 
 function formatModuleLabel(key: string) {
@@ -326,25 +318,18 @@ async function fetchRoles() {
 
   try {
     const { data } = await axios.get('/api/hr/roles');
-    roles.value = data?.roles?.length ? data.roles : fallbackRoles;
-    permissionsByGroup.value = Object.keys(data?.permissions ?? {}).length ? data.permissions : fallbackPermissions;
+    roles.value = data?.roles ?? [];
+    permissionsByGroup.value = data?.permissions ?? {};
   } catch (error: any) {
-    roles.value = fallbackRoles;
-    permissionsByGroup.value = fallbackPermissions;
-    showSnackbar(error?.response?.data?.message ?? 'Failed to load roles.', 'warning');
+    roles.value = [];
+    permissionsByGroup.value = {};
+    showSnackbar(error?.response?.data?.message ?? 'Failed to load roles from server.', 'error');
   } finally {
     loading.value = false;
   }
 }
 
 async function fetchUsers() {
-  if (!canAssignRoles.value) {
-    users.value = fallbackUsers;
-    pagination.total = fallbackUsers.length;
-    userLoading.value = false;
-    return;
-  }
-
   userLoading.value = true;
 
   try {
@@ -356,12 +341,12 @@ async function fetchUsers() {
       }
     });
 
-    users.value = data?.users?.data?.length ? data.users.data : fallbackUsers;
-    pagination.total = data?.users?.total ?? users.value.length;
+    users.value = data?.users?.data ?? [];
+    pagination.total = data?.users?.total ?? 0;
   } catch (error: any) {
-    users.value = fallbackUsers;
-    pagination.total = fallbackUsers.length;
-    showSnackbar(error?.response?.data?.message ?? 'Failed to load user assignments.', 'warning');
+    users.value = [];
+    pagination.total = 0;
+    showSnackbar(error?.response?.data?.message ?? 'Failed to load user assignments from server.', 'error');
   } finally {
     userLoading.value = false;
   }
@@ -388,11 +373,6 @@ function openEditDrawer(role: Role) {
 }
 
 async function saveRole() {
-  if (!canManageRoles.value) {
-    showSnackbar('You do not have permission to manage roles.', 'error');
-    return;
-  }
-
   if (!roleForm.name.trim()) {
     showSnackbar('Role name is required.', 'error');
     return;
@@ -604,7 +584,6 @@ onMounted(async () => {
     <v-btn
       color="primary"
       prepend-icon="mdi-shield-plus"
-      :disabled="!canManageRoles"
       @click="openCreateDrawer"
     >
       Create Role
@@ -615,9 +594,7 @@ onMounted(async () => {
     <v-col cols="12" sm="6" md="4">
       <v-card class="bg-surface rounded-xl hr-card-shadow" variant="outlined" elevation="0">
         <v-card-text class="d-flex align-center ga-3">
-          <v-avatar color="primary" variant="tonal">
-            <v-icon icon="mdi-shield-account" />
-          </v-avatar>
+          <v-avatar color="primary" variant="tonal">RL</v-avatar>
           <div>
             <div class="text-caption text-lightText">Total Roles</div>
             <div class="text-h5 font-weight-bold">{{ roles.length }}</div>
@@ -629,9 +606,7 @@ onMounted(async () => {
     <v-col cols="12" sm="6" md="4">
       <v-card class="bg-surface rounded-xl hr-card-shadow" variant="outlined" elevation="0">
         <v-card-text class="d-flex align-center ga-3">
-          <v-avatar color="purple" variant="tonal">
-            <v-icon icon="mdi-key" />
-          </v-avatar>
+          <v-avatar color="purple" variant="tonal">PM</v-avatar>
           <div>
             <div class="text-caption text-lightText">Total Permissions</div>
             <div class="text-h5 font-weight-bold">{{ totalPermissions }}</div>
@@ -643,9 +618,7 @@ onMounted(async () => {
     <v-col cols="12" sm="6" md="4">
       <v-card class="bg-surface rounded-xl hr-card-shadow" variant="outlined" elevation="0">
         <v-card-text class="d-flex align-center ga-3">
-          <v-avatar color="success" variant="tonal">
-            <v-icon icon="mdi-account-check" />
-          </v-avatar>
+          <v-avatar color="success" variant="tonal">UR</v-avatar>
           <div>
             <div class="text-caption text-lightText">Users with Roles</div>
             <div class="text-h5 font-weight-bold">{{ usersWithRoles }}</div>
@@ -682,7 +655,7 @@ onMounted(async () => {
                   <div class="d-flex justify-space-between align-start ga-3 mb-4">
                     <div class="d-flex align-center ga-3">
                       <v-avatar :color="roleColor(role.name)" variant="tonal">
-                        <v-icon icon="mdi-shield-account" />
+                        {{ roleInitials(role.name) }}
                       </v-avatar>
 
                       <div>
@@ -698,7 +671,7 @@ onMounted(async () => {
                       <v-btn
                         icon="mdi-pencil-outline"
                         variant="text"
-                        :disabled="!canModifyRole(role) || !canManageRoles"
+                        :disabled="!canModifyRole(role)"
                         @click="openEditDrawer(role)"
                       />
                       <v-btn
@@ -747,12 +720,12 @@ onMounted(async () => {
                   </v-chip>
 
                   <div>
-                    <v-btn
-                      size="small"
-                      variant="outlined"
-                      :disabled="!canManageRoles"
-                      @click="openEditDrawer(role)"
-                    >
+                      <v-btn
+                        size="small"
+                        variant="outlined"
+                        :disabled="!canModifyRole(role)"
+                        @click="openEditDrawer(role)"
+                      >
                       Edit Permissions
                     </v-btn>
                   </div>
@@ -845,89 +818,91 @@ onMounted(async () => {
     </v-card-text>
   </v-card>
 
-  <v-navigation-drawer v-model="drawerOpen" location="right" temporary width="680">
-    <div class="pa-4 border-b d-flex justify-space-between align-center">
-      <div>
-        <h5 class="text-h5 mb-1">{{ roleForm.id ? `Edit Role: ${roleForm.name}` : 'Create Role' }}</h5>
-        <p class="text-body-2 text-lightText mb-0">Define role details and assign module permissions.</p>
+  <v-dialog v-model="drawerOpen" max-width="1000" scrollable>
+    <v-card>
+      <div class="pa-4 border-b d-flex justify-space-between align-center">
+        <div>
+          <h5 class="text-h5 mb-1">{{ roleForm.id ? `Edit Role: ${roleForm.name}` : 'Create Role' }}</h5>
+          <p class="text-body-2 text-lightText mb-0">Define role details and assign module permissions.</p>
+        </div>
+
+        <v-btn icon="mdi-close" variant="text" @click="drawerOpen = false" />
       </div>
 
-      <v-btn icon="mdi-close" variant="text" @click="drawerOpen = false" />
-    </div>
+      <v-card-text class="pa-4 drawer-body">
+        <div class="text-subtitle-1 font-weight-medium mb-3">Role Details</div>
+        <v-text-field v-model="roleForm.name" label="Role Name *" variant="outlined" class="mb-3" />
+        <v-textarea v-model="roleForm.description" label="Description" rows="2" variant="outlined" class="mb-5" />
 
-    <div class="pa-4 drawer-body">
-      <div class="text-subtitle-1 font-weight-medium mb-3">Role Details</div>
-      <v-text-field v-model="roleForm.name" label="Role Name *" variant="outlined" class="mb-3" />
-      <v-textarea v-model="roleForm.description" label="Description" rows="2" variant="outlined" class="mb-5" />
+        <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-3">
+          <div class="text-subtitle-1 font-weight-medium">Permissions Matrix</div>
+          <div class="d-flex ga-2 flex-wrap">
+            <v-btn size="small" variant="outlined" @click="selectAllPermissions">Select All</v-btn>
+            <v-btn size="small" variant="outlined" @click="deselectAllPermissions">Deselect All</v-btn>
+            <v-btn size="small" variant="outlined" @click="selectReadOnly">Select Read-Only</v-btn>
+          </div>
+        </div>
 
-      <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-3">
-        <div class="text-subtitle-1 font-weight-medium">Permissions Matrix</div>
-        <div class="d-flex ga-2 flex-wrap">
-          <v-btn size="small" variant="outlined" @click="selectAllPermissions">Select All</v-btn>
-          <v-btn size="small" variant="outlined" @click="deselectAllPermissions">Deselect All</v-btn>
-          <v-btn size="small" variant="outlined" @click="selectReadOnly">Select Read-Only</v-btn>
+        <div class="d-flex align-center ga-2 flex-wrap mb-4">
+          <span class="text-body-2 text-lightText">Apply template:</span>
+          <v-btn
+            v-for="template in Object.keys(roleTemplates)"
+            :key="template"
+            size="small"
+            variant="outlined"
+            @click="requestTemplate(template)"
+          >
+            {{ template }}
+          </v-btn>
+        </div>
+
+        <v-expansion-panels multiple>
+          <v-expansion-panel v-for="(permissions, group) in permissionsByGroup" :key="group">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center justify-space-between w-100 pe-4">
+                <div class="d-flex align-center ga-2">
+                  <v-icon :icon="moduleMeta[group]?.icon ?? moduleMeta.other.icon" />
+                  <span>{{ formatModuleLabel(group) }}</span>
+                </div>
+
+                <span class="text-caption text-lightText">
+                  {{ permissions.filter((permission) => roleForm.permissions.includes(permission.name)).length }}/{{ permissions.length }} selected
+                </span>
+              </div>
+            </v-expansion-panel-title>
+
+            <v-expansion-panel-text>
+              <v-row>
+                <v-col
+                  v-for="permission in permissions"
+                  :key="permission.id"
+                  cols="12"
+                  md="4"
+                >
+                  <v-checkbox
+                    v-model="roleForm.permissions"
+                    :label="permission.name"
+                    :value="permission.name"
+                    density="compact"
+                    hide-details
+                    color="primary"
+                  />
+                </v-col>
+              </v-row>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+      </v-card-text>
+      <div class="pa-4 border-t d-flex justify-space-between align-center sticky-footer">
+        <div class="text-body-2 text-lightText">{{ selectedPermissionsCount }} permissions selected</div>
+
+        <div class="d-flex ga-2">
+          <v-btn variant="outlined" @click="drawerOpen = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingRole" @click="saveRole">Save Role</v-btn>
         </div>
       </div>
-
-      <div class="d-flex align-center ga-2 flex-wrap mb-4">
-        <span class="text-body-2 text-lightText">Apply template:</span>
-        <v-btn
-          v-for="template in Object.keys(roleTemplates)"
-          :key="template"
-          size="small"
-          variant="outlined"
-          @click="requestTemplate(template)"
-        >
-          {{ template }}
-        </v-btn>
-      </div>
-
-      <v-expansion-panels multiple>
-        <v-expansion-panel v-for="(permissions, group) in permissionsByGroup" :key="group">
-          <v-expansion-panel-title>
-            <div class="d-flex align-center justify-space-between w-100 pe-4">
-              <div class="d-flex align-center ga-2">
-                <v-icon :icon="moduleMeta[group]?.icon ?? moduleMeta.other.icon" />
-                <span>{{ formatModuleLabel(group) }}</span>
-              </div>
-
-              <span class="text-caption text-lightText">
-                {{ permissions.filter((permission) => roleForm.permissions.includes(permission.name)).length }}/{{ permissions.length }} selected
-              </span>
-            </div>
-          </v-expansion-panel-title>
-
-          <v-expansion-panel-text>
-            <v-row>
-              <v-col
-                v-for="permission in permissions"
-                :key="permission.id"
-                cols="12"
-                md="4"
-              >
-                <v-checkbox
-                  v-model="roleForm.permissions"
-                  :label="permission.name"
-                  :value="permission.name"
-                  density="compact"
-                  hide-details
-                  color="primary"
-                />
-              </v-col>
-            </v-row>
-          </v-expansion-panel-text>
-        </v-expansion-panel>
-      </v-expansion-panels>
-    </div>
-    <div class="pa-4 border-t d-flex justify-space-between align-center sticky-footer">
-      <div class="text-body-2 text-lightText">{{ selectedPermissionsCount }} permissions selected</div>
-
-      <div class="d-flex ga-2">
-        <v-btn variant="outlined" @click="drawerOpen = false">Cancel</v-btn>
-        <v-btn color="primary" :loading="savingRole" @click="saveRole">Save Role</v-btn>
-      </div>
-    </div>
-  </v-navigation-drawer>
+    </v-card>
+  </v-dialog>
 
   <v-dialog v-model="assignDialog.show" max-width="480">
     <v-card>
@@ -1051,7 +1026,7 @@ onMounted(async () => {
 }
 
 .drawer-body {
-  height: calc(100% - 140px);
+  max-height: 65vh;
   overflow-y: auto;
 }
 

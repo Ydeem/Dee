@@ -53,7 +53,7 @@ class RoleController extends Controller
     {
         $role = Role::findOrFail($id);
 
-        if (in_array($role->name, ['HR Admin', 'super-admin'], true)) {
+        if (in_array($role->name, ['super-admin'], true)) {
             return response()->json([
                 'message' => 'System roles cannot be modified.',
             ], 422);
