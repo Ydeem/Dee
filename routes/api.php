@@ -1,21 +1,5 @@
 <?php
 
-use App\Http\Controllers\EmployeeController;
-use App\Http\Controllers\HRDashboardController;
-use App\Http\Controllers\HR\AttendanceController;
-use App\Http\Controllers\HR\DepartmentController;
-use App\Http\Controllers\HR\DesignationController;
-use App\Http\Controllers\HR\LeaveRequestController;
-use App\Http\Controllers\HR\LeaveTypeController;
-use App\Http\Controllers\HR\JobOpeningController;
-use App\Http\Controllers\HR\OnboardingController;
-use App\Http\Controllers\HR\OnboardingTemplateController;
-use App\Http\Controllers\HR\ApplicantController;
-use App\Http\Controllers\HR\ShiftController;
-use App\Http\Controllers\HR\ShiftScheduleController;
-use App\Http\Controllers\HR\PayrollController;
-use App\Http\Controllers\HR\PayslipController;
-use App\Http\Controllers\HR\SalaryStructureController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->prefix('hr')->group(function () {
