@@ -7,6 +7,8 @@ use App\Models\HR\Employee;
 use App\Models\HR\PayrollRun;
 use App\Models\HR\Payslip;
 use App\Models\HR\SalaryStructure;
+use App\Models\User;
+use App\Notifications\HR\LeaveRequestNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -74,6 +76,8 @@ class PayrollController extends Controller
 
     public function generateRun(Request $request)
     {
+        abort_if(! $this->can('process payroll'), 403, 'Forbidden');
+
         $request->validate([
             'month' => 'required|integer|between:1,12',
             'year' => 'required|integer|min:2020',
@@ -181,6 +185,8 @@ class PayrollController extends Controller
 
     public function approve(int $id)
     {
+        abort_if(! $this->can('approve payroll'), 403, 'Forbidden');
+
         $run = PayrollRun::findOrFail($id);
 
         if ($run->status !== 'Pending Approval') {
@@ -206,6 +212,8 @@ class PayrollController extends Controller
 
     public function markPaid(int $id)
     {
+        abort_if(! $this->can('process payroll'), 403, 'Forbidden');
+
         $run = PayrollRun::findOrFail($id);
 
         if ($run->status !== 'Approved') {
@@ -220,6 +228,20 @@ class PayrollController extends Controller
             'status' => 'Paid',
             'paid_at' => now(),
         ]);
+
+        $run->load(['payslips.employee']);
+        foreach ($run->payslips as $payslip) {
+            $recipient = $this->resolveUserForEmployee($payslip->employee);
+            if ($recipient && $recipient->settings->notify_payslip_ready) {
+                $recipient->notify(new LeaveRequestNotification(
+                    message: 'Your payslip for ' . $run->month_label . ' is ready',
+                    type: 'payslip_ready',
+                    link: '/hr/payroll',
+                    icon: 'mdi-cash',
+                    color: 'primary',
+                ));
+            }
+        }
 
         return response()->json([
             'message' => $run->month_label . ' payroll marked as Paid.',
@@ -449,5 +471,24 @@ class PayrollController extends Controller
 
         return Employee::query()->whereKey($authId)->exists() ? (int) $authId : null;
     }
-}
 
+    private function resolveUserForEmployee(?Employee $employee): ?User
+    {
+        if (! $employee) {
+            return null;
+        }
+
+        $emails = collect([$employee->work_email, $employee->personal_email])
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($emails === []) {
+            return null;
+        }
+
+        return User::query()
+            ->whereIn('email', $emails)
+            ->first();
+    }
+}

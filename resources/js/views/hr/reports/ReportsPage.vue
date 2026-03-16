@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import ApexCharts from 'apexcharts';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 interface ReportFilters {
   year: number
@@ -13,6 +15,10 @@ const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Reports', disabled: true, href: '#' }
 ];
+
+const { can, isAdmin } = usePermissions();
+const canViewReports = computed(() => can('view reports'));
+const canViewChatbotAudit = computed(() => isAdmin.value === true);
 
 const COLORS = {
   primary: '#4f6ef7',
@@ -96,6 +102,23 @@ const expenses = ref<any>({
   by_department: [],
   total_year: 0,
   pending_count: 0
+});
+
+const auditDays = ref(7);
+const chatbotAuditLoading = ref(false);
+const chatbotAudit = ref<any>({
+  period_days: 7,
+  summary: {
+    total_requests: 0,
+    allowed_requests: 0,
+    blocked_requests: 0,
+    blocked_rate: 0,
+    avg_response_ms: 0,
+    slow_over_3s: 0
+  },
+  by_topic: [],
+  by_role: [],
+  recent_blocked: []
 });
 
 const yearOptions = computed(() => {
@@ -261,6 +284,21 @@ async function fetchExpenses() {
   }
 }
 
+async function fetchChatbotAudit() {
+  if (!canViewChatbotAudit.value) return;
+
+  chatbotAuditLoading.value = true;
+  try {
+    const { data } = await axios.get('/api/hr/reports/chatbot-audit', {
+      params: { days: auditDays.value }
+    });
+    chatbotAudit.value = data;
+  } catch (error: any) {
+    showSnackbar(error?.response?.data?.message ?? 'Failed to load chatbot audit.', 'error');
+  } finally {
+    chatbotAuditLoading.value = false;
+  }
+}
 const tabFetchMap: Record<string, () => Promise<void>> = {
   workforce: fetchWorkforce,
   attendance: fetchAttendance,
@@ -433,14 +471,29 @@ watch(
   }
 );
 
+watch(
+  auditDays,
+  () => {
+    if (canViewChatbotAudit.value) {
+      fetchChatbotAudit();
+    }
+  }
+);
+
 onMounted(() => {
   fetchWorkforce();
+  if (canViewChatbotAudit.value) {
+    fetchChatbotAudit();
+  }
 });
 </script>
 
 <template>
   <BaseBreadcrumb title="HR Reports" subtitle="Analytics and insights across your workforce" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewReports" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h3 mb-1">HR Reports</h2>
@@ -459,6 +512,73 @@ onMounted(() => {
       />
     </div>
   </div>
+
+  <v-card v-if="canViewChatbotAudit" class="bg-surface rounded-lg hr-card-shadow mb-4" variant="outlined" elevation="0">
+    <v-card-item>
+      <template #title>
+        <div class="d-flex align-center ga-2">
+          <v-icon size="18" color="primary">mdi-shield-search</v-icon>
+          Chatbot RBAC Audit
+        </div>
+      </template>
+      <template #append>
+        <v-select
+          v-model="auditDays"
+          :items="[1, 7, 30, 90]"
+          label="Days"
+          variant="outlined"
+          density="compact"
+          hide-details
+          style="max-width: 100px"
+        />
+      </template>
+    </v-card-item>
+    <v-divider />
+    <v-card-text>
+      <v-row v-if="!chatbotAuditLoading">
+        <v-col cols="12" sm="6" md="3">
+          <v-card class="rounded-lg" variant="tonal" color="primary"><v-card-text><div class="text-caption">Total Requests</div><div class="text-h5 font-weight-bold">{{ chatbotAudit.summary?.total_requests ?? 0 }}</div></v-card-text></v-card>
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <v-card class="rounded-lg" variant="tonal" color="error"><v-card-text><div class="text-caption">Blocked</div><div class="text-h5 font-weight-bold">{{ chatbotAudit.summary?.blocked_requests ?? 0 }}</div></v-card-text></v-card>
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <v-card class="rounded-lg" variant="tonal" color="warning"><v-card-text><div class="text-caption">Blocked Rate</div><div class="text-h5 font-weight-bold">{{ chatbotAudit.summary?.blocked_rate ?? 0 }}%</div></v-card-text></v-card>
+        </v-col>
+        <v-col cols="12" sm="6" md="3">
+          <v-card class="rounded-lg" variant="tonal" color="success"><v-card-text><div class="text-caption">Avg Response</div><div class="text-h5 font-weight-bold">{{ chatbotAudit.summary?.avg_response_ms ?? 0 }}ms</div></v-card-text></v-card>
+        </v-col>
+
+        <v-col cols="12" md="6">
+          <div class="text-subtitle-2 font-weight-bold mb-2">Top Topics</div>
+          <div class="d-flex flex-wrap ga-2">
+            <v-chip
+              v-for="item in (chatbotAudit.by_topic ?? [])"
+              :key="item.topic"
+              size="small"
+              color="primary"
+              variant="outlined"
+            >
+              {{ item.topic }} ({{ item.total }})
+            </v-chip>
+            <span v-if="!(chatbotAudit.by_topic ?? []).length" class="text-caption text-medium-emphasis">No topic data yet</span>
+          </div>
+        </v-col>
+
+        <v-col cols="12" md="6">
+          <div class="text-subtitle-2 font-weight-bold mb-2">Recent Blocked Prompts</div>
+          <v-list v-if="(chatbotAudit.recent_blocked ?? []).length" density="compact" class="py-0">
+            <v-list-item v-for="item in chatbotAudit.recent_blocked.slice(0, 4)" :key="item.id" class="px-0">
+              <v-list-item-title class="text-body-2">{{ item.user_name }} ({{ item.role_label }}): {{ item.topic }}</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">{{ item.block_reason }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+          <div v-else class="text-caption text-medium-emphasis">No blocked prompts in this period.</div>
+        </v-col>
+      </v-row>
+      <v-skeleton-loader v-else type="article" />
+    </v-card-text>
+  </v-card>
 
   <v-card class="bg-surface rounded-lg hr-card-shadow" variant="outlined" elevation="0">
     <v-card-item class="pb-0">
@@ -912,6 +1032,7 @@ onMounted(() => {
   </v-card>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+  </template>
 </template>
 
 <style scoped>
@@ -934,3 +1055,9 @@ onMounted(() => {
   background: linear-gradient(180deg, rgba(79, 110, 247, 0.03), rgba(247, 124, 79, 0.03));
 }
 </style>
+
+
+
+
+
+

@@ -1,8 +1,10 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { router } from '@inertiajs/vue3'
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue'
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue'
+import { usePermissions } from '@/composables/usePermissions'
 
 interface JobItem {
   id: number
@@ -45,6 +47,9 @@ const breadcrumbs = [
   { title: 'Recruitment', disabled: false, href: '#' },
   { title: 'Job Openings', disabled: true, href: '#' },
 ]
+
+const { canAny } = usePermissions()
+const canViewRecruitment = computed(() => canAny('view recruitment', 'view job openings'))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -366,6 +371,9 @@ onMounted(async () => {
 <template>
   <BaseBreadcrumb title="Job Openings" subtitle="Manage recruitment and open positions" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewRecruitment" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h3 mb-1">Job Openings</h2>
@@ -534,6 +542,7 @@ onMounted(async () => {
   </v-dialog>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+  </template>
 </template>
 
 <style scoped>
@@ -542,3 +551,5 @@ onMounted(async () => {
 .border-b { border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
 .border-t { border-top: 1px solid rgba(0, 0, 0, 0.08); }
 </style>
+
+

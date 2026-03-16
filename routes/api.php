@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\HR\ApplicantController;
+use App\Http\Controllers\HR\AccountController;
 use App\Http\Controllers\HR\AttendanceController;
 use App\Http\Controllers\HR\DepartmentController;
 use App\Http\Controllers\HR\DesignationController;
@@ -10,11 +11,11 @@ use App\Http\Controllers\HR\HrSettingsController;
 use App\Http\Controllers\HR\JobOpeningController;
 use App\Http\Controllers\HR\LeaveRequestController;
 use App\Http\Controllers\HR\LeaveTypeController;
+use App\Http\Controllers\HR\LinkingController;
 use App\Http\Controllers\HR\OnboardingController;
 use App\Http\Controllers\HR\PayrollController;
 use App\Http\Controllers\HR\PayslipController;
 use App\Http\Controllers\HR\ReportController;
-use App\Http\Controllers\HR\RoleController;
 use App\Http\Controllers\HR\SearchController;
 use App\Http\Controllers\HR\ShiftController;
 use App\Http\Controllers\HRDashboardController;
@@ -36,6 +37,12 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
         Route::patch('/employees/{id}/status', [EmployeeController::class, 'updateStatus']);
         Route::post('/employees/{id}/avatar', [EmployeeController::class, 'updateAvatar']);
+        Route::get('/employees/{id}/account-status', [AccountController::class, 'checkStatus']);
+        Route::post('/employees/{id}/create-account', [AccountController::class, 'createAccount']);
+        Route::post('/employees/{id}/reset-password', [AccountController::class, 'resetPassword']);
+        Route::delete('/employees/{id}/revoke-access', [AccountController::class, 'revokeAccess']);
+        Route::post('/profile/avatar', [EmployeeController::class, 'updateMyAvatar']);
+        Route::post('/link-employee-account', [LinkingController::class, 'linkAllAccounts']);
         Route::delete('/employees/{id}/avatar', [EmployeeController::class, 'removeAvatar']);
         Route::get('/employees/{id}/attendance', [EmployeeController::class, 'attendance']);
         Route::get('/employees/{id}/leave', [EmployeeController::class, 'leave']);
@@ -186,13 +193,10 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::get('/reports/payroll', [ReportController::class, 'payroll']);
         Route::get('/reports/recruitment', [ReportController::class, 'recruitment']);
         Route::get('/reports/expenses', [ReportController::class, 'expenses']);
+        Route::get('/reports/chatbot-audit', [ReportController::class, 'chatbotAudit']);
         Route::get('/search', [SearchController::class, 'search']);
+        Route::get('/accounts', [AccountController::class, 'index']);
 
-        Route::get('/roles', [RoleController::class, 'index']);
-        Route::post('/roles', [RoleController::class, 'store']);
-        Route::put('/roles/{id}', [RoleController::class, 'update']);
-        Route::delete('/roles/{id}', [RoleController::class, 'destroy']);
-        Route::get('/roles/users', [RoleController::class, 'userRoles']);
-        Route::post('/roles/assign', [RoleController::class, 'assignRole']);
     });
 });
+

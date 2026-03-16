@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { router } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
+import { router, usePage } from '@inertiajs/vue3';
 import SvgSprite from '@/components/shared/SvgSprite.vue';
 import { useCustomizerStore } from '../../../stores/customizer';
 
@@ -9,18 +9,33 @@ import NotificationDD from './NotificationDD.vue';
 import ProfileDD from './ProfileDD.vue';
 import Searchbar from './SearchBarPanel.vue';
 
+type HeaderAuthUser = {
+  avatar?: string | null
+  avatar_url?: string | null
+  initials?: string
+};
+
 const customizer = useCustomizerStore();
+const page = usePage();
 const hamburgerIcon = '/assets/images/icons/hamburger-menu.svg';
 const quickActions = [
   { title: 'Add Employee', route: '/hr/employees/create' },
   { title: 'Post Job', route: '/hr/job-openings' },
-  { title: 'Record Attendance', route: '/hr/attendance' }
+  { title: 'Record Attendance', route: '/hr/attendance' },
+  { title: 'Submit Expense', route: '/hr/expenses' }
 ];
+const authUser = computed<HeaderAuthUser | null>(() => ((page.props as any)?.auth?.user as HeaderAuthUser) ?? null);
+const pendingLeave = computed(() => Number((page.props as any)?.auth?.pending_leave ?? 0));
 const priority = ref(customizer.setHorizontalLayout ? 0 : 0);
+const profileMenuOpen = ref(false);
 watch(priority, (newPriority) => {
   // yes, console.log() is a side effect
   priority.value = newPriority;
 });
+
+function goToPendingLeaves() {
+  router.visit('/hr/leave-management?status=Pending');
+}
 </script>
 
 <template>
@@ -76,10 +91,16 @@ watch(priority, (newPriority) => {
     <!---right part -->
     <!-- ---------------------------------------------- -->
 
-    <!-- ---------------------------------------------- -->
-    <!-- Notification -->
-    <!-- ---------------------------------------------- -->
-    <NotificationDD />
+    <v-chip
+      size="small"
+      :color="pendingLeave > 0 ? 'warning' : 'grey-lighten-2'"
+      class="ms-2 d-none d-md-inline-flex font-weight-medium"
+      variant="flat"
+      style="cursor: pointer"
+      @click.stop="goToPendingLeaves"
+    >
+      {{ pendingLeave }} Leave Requests Pending
+    </v-chip>
 
     <!-- ---------------------------------------------- -->
     <!-- Quick Actions -->
@@ -104,17 +125,23 @@ watch(priority, (newPriority) => {
     </v-menu>
 
     <!-- ---------------------------------------------- -->
+    <!-- Notification -->
+    <!-- ---------------------------------------------- -->
+    <NotificationDD />
+
+    <!-- ---------------------------------------------- -->
     <!-- User Profile -->
     <!-- ---------------------------------------------- -->
-    <v-menu :close-on-content-click="false" offset="8, 0">
+    <v-menu v-model="profileMenuOpen" :close-on-content-click="false" offset="8, 0">
       <template v-slot:activator="{ props }">
         <v-btn class="profileBtn me-0" aria-label="profile" variant="text" rounded="circle" icon v-bind="props">
-          <v-avatar class="py-2" size="40" rounded="circle">
-            <img src="@/assets/images/users/avatar-6.png" class="rounded-circle" alt="profile" />
+          <v-avatar class="py-2" size="40" rounded="circle" color="primary">
+            <v-img v-if="authUser?.avatar_url || authUser?.avatar" :src="authUser?.avatar_url || authUser?.avatar || ''" cover />
+            <span v-else class="text-white text-caption font-weight-bold">{{ authUser?.initials ?? 'U' }}</span>
           </v-avatar>
         </v-btn>
       </template>
-      <v-sheet rounded="md" width="290">
+      <v-sheet rounded="md" width="360">
         <ProfileDD />
       </v-sheet>
     </v-menu>

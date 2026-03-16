@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 interface LeaveRequestItem {
   id: number;
@@ -71,6 +73,11 @@ const breadcrumbs = [
   { title: 'Leave Management', disabled: true, href: '#' },
 ];
 
+const { canAny, isAdmin } = usePermissions();
+const canViewLeave = computed(() => canAny('view leave', 'view leave requests')); 
+const canApproveLeave = computed(() => canAny('approve leave', 'approve leave requests'));
+const canManageLeaveTypes = computed(() => isAdmin.value);
+
 const tab = ref('requests');
 const loading = ref(false);
 const requests = ref<LeaveRequestItem[]>([]);
@@ -88,6 +95,7 @@ const filters = reactive({
   month: new Date().getMonth() + 1,
   year: new Date().getFullYear(),
 });
+const filterToday = ref(false);
 
 const balancesLoading = ref(false);
 const balanceEmployees = ref<BalanceEmployee[]>([]);
@@ -238,6 +246,7 @@ async function fetchLeaveRequests() {
         department: filters.department || undefined,
         leave_type: filters.leaveType || undefined,
         status: filters.status || undefined,
+        today: filterToday.value ? 1 : undefined,
         page: pagination.page,
         per_page: pagination.perPage,
       },
@@ -396,12 +405,21 @@ async function confirmDelete() {
 }
 
 function openLeaveTypesDialog() {
+  if (!canManageLeaveTypes.value) {
+    snackbar.value = { show: true, message: 'Only HR Admin can manage leave types.', color: 'error' };
+    return;
+  }
+
   leaveTypesDialog.value = true;
   leaveTypeFormOpen.value = false;
   resetLeaveTypeForm();
 }
 
 function openLeaveTypeForm(type?: LeaveTypeItem) {
+  if (!canManageLeaveTypes.value) {
+    return;
+  }
+
   leaveTypeFormOpen.value = true;
   leaveTypeFormErrors.value = {};
 
@@ -424,6 +442,11 @@ function openLeaveTypeForm(type?: LeaveTypeItem) {
 }
 
 async function saveLeaveType() {
+  if (!canManageLeaveTypes.value) {
+    snackbar.value = { show: true, message: 'Only HR Admin can manage leave types.', color: 'error' };
+    return;
+  }
+
   leaveTypeSaving.value = true;
   leaveTypeFormErrors.value = {};
 
@@ -460,6 +483,11 @@ async function saveLeaveType() {
 }
 
 async function deleteLeaveType(type: LeaveTypeItem) {
+  if (!canManageLeaveTypes.value) {
+    snackbar.value = { show: true, message: 'Only HR Admin can manage leave types.', color: 'error' };
+    return;
+  }
+
   try {
     const { data } = await axios.delete(`/api/hr/leave-types/${type.id}`);
     snackbar.value = { show: true, message: data.message ?? 'Leave type deleted.', color: 'success' };
@@ -488,6 +516,23 @@ watch(() => balancePagination.page, () => {
 });
 
 onMounted(async () => {
+  const params = new URLSearchParams(window.location.search);
+  const statusParam = params.get('status');
+  const todayParam = params.get('today');
+
+  if (statusParam && statusOptions.includes(statusParam)) {
+    filters.status = statusParam;
+  }
+
+  filterToday.value = todayParam === '1' || todayParam === 'true';
+  if (filterToday.value) {
+    if (!filters.status) {
+      filters.status = 'Approved';
+    }
+    filters.month = new Date().getMonth() + 1;
+    filters.year = new Date().getFullYear();
+  }
+
   await Promise.all([fetchLeaveTypes(), fetchEmployeeOptions(), fetchLeaveRequests(), fetchLeaveBalances()]);
 });
 </script>
@@ -495,13 +540,16 @@ onMounted(async () => {
 <template>
   <BaseBreadcrumb title="Leave Management" subtitle="Manage employee leave requests and balances" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewLeave" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h3 mb-1">Leave Management</h2>
       <p class="text-subtitle-1 text-lightText mb-0">Manage employee leave requests, balances, and leave types</p>
     </div>
     <div class="d-flex ga-2">
-      <v-btn variant="outlined" prepend-icon="mdi-cog" @click="openLeaveTypesDialog">Leave Types</v-btn>
+      <v-btn v-if="canManageLeaveTypes" variant="outlined" prepend-icon="mdi-cog" @click="openLeaveTypesDialog">Leave Types</v-btn>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openNewLeaveDialog">New Leave Request</v-btn>
     </div>
   </div>
@@ -576,8 +624,8 @@ onMounted(async () => {
                 <td>{{ req.applied_on }}</td>
                 <td>
                   <div class="d-flex gap-1">
-                    <v-btn v-if="req.can_approve" icon size="small" color="success" variant="tonal" @click="approveRequest(req)" title="Approve"><v-icon size="16">mdi-check</v-icon></v-btn>
-                    <v-btn v-if="req.can_reject" icon size="small" color="error" variant="tonal" @click="openRejectDialog(req)" title="Reject"><v-icon size="16">mdi-close</v-icon></v-btn>
+                    <v-btn v-if="req.can_approve && canApproveLeave" icon size="small" color="success" variant="tonal" @click="approveRequest(req)" title="Approve"><v-icon size="16">mdi-check</v-icon></v-btn>
+                    <v-btn v-if="req.can_reject && canApproveLeave" icon size="small" color="error" variant="tonal" @click="openRejectDialog(req)" title="Reject"><v-icon size="16">mdi-close</v-icon></v-btn>
                     <v-btn v-if="req.can_cancel" icon size="small" color="warning" variant="tonal" @click="cancelRequest(req)" title="Cancel"><v-icon size="16">mdi-cancel</v-icon></v-btn>
                     <v-btn icon size="small" variant="text" @click="openViewDialog(req)" title="View Details"><v-icon size="16">mdi-eye</v-icon></v-btn>
                     <v-btn v-if="req.status === 'Pending'" icon size="small" variant="text" @click="openEditDrawer(req)" title="Edit"><v-icon size="16">mdi-pencil</v-icon></v-btn>
@@ -733,7 +781,7 @@ onMounted(async () => {
   </v-dialog>
 
   <v-dialog v-model="leaveTypesDialog" max-width="760">
-    <v-card>
+    <v-card v-if="canManageLeaveTypes">
       <v-card-title class="d-flex justify-space-between align-center"><span>Leave Types</span><v-btn size="small" variant="outlined" prepend-icon="mdi-plus" @click="openLeaveTypeForm()">Add Leave Type</v-btn></v-card-title>
       <v-card-text>
         <v-table>
@@ -771,6 +819,7 @@ onMounted(async () => {
       <v-card-actions><v-spacer /><v-btn variant="text" @click="leaveTypesDialog = false">Close</v-btn></v-card-actions>
     </v-card>
   </v-dialog>
+  </template>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
 </template>
@@ -783,3 +832,6 @@ onMounted(async () => {
 .border-b { border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
 .border-t { border-top: 1px solid rgba(0, 0, 0, 0.08); }
 </style>
+
+
+

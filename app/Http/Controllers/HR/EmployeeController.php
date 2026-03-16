@@ -11,16 +11,21 @@ use App\Models\HR\Employee;
 use App\Models\HR\EmployeeDocument;
 use App\Models\HR\EmployeeOnboarding;
 use App\Models\HR\Expense;
+use App\Models\HR\HrRole;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\LeaveType;
 use App\Models\HR\Payslip;
 use App\Models\HR\Shift;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Spatie\Permission\PermissionRegistrar;
 
 class EmployeeController extends Controller
 {
@@ -116,6 +121,8 @@ class EmployeeController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $this->can('create employees'), 403, 'Forbidden');
+
         $validated = $this->validateEmployee($request);
 
         $avatarPath = null;
@@ -159,6 +166,9 @@ class EmployeeController extends Controller
             ->whereIn('status', ['Present', 'Late'])
             ->count();
 
+        $employee->setAttribute('has_user_account', $this->employeeHasUserAccount($employee));
+        $employee->setAttribute('login_email', $this->resolveEmployeeLoginEmail($employee));
+
         return response()->json([
             'employee' => $employee,
             'days_present' => $daysPresent,
@@ -166,8 +176,87 @@ class EmployeeController extends Controller
         ]);
     }
 
+    public function createUserAccount(Request $request, $id)
+    {
+        abort_if(
+            !$request->user()?->isHrAdmin() && !$request->user()?->can('create employees'),
+            403,
+            'You are not allowed to create login accounts.'
+        );
+
+        $employee = Employee::findOrFail($id);
+
+        $email = $this->resolveEmployeeLoginEmail($employee);
+        if (! $email) {
+            return response()->json([
+                'message' => 'Employee has no email address.',
+            ], 422);
+        }
+
+        if ($this->userExistsByEmail($email)) {
+            return response()->json([
+                'message' => 'User account already exists for this employee.',
+            ], 422);
+        }
+
+        $user = User::create([
+            'name' => trim($employee->full_name) ?: trim($employee->first_name . ' ' . $employee->last_name),
+            'email' => $email,
+            'password' => Hash::make('Password@123'),
+            'email_verified_at' => now(),
+        ]);
+
+        $employeeRole = HrRole::where('name', 'Employee')->first();
+        if ($employeeRole) {
+            DB::table('model_has_roles')->updateOrInsert(
+                [
+                    'role_id' => $employeeRole->id,
+                    'model_type' => User::class,
+                    'model_id' => $user->id,
+                ],
+                [
+                    'assigned_by' => $request->user()->id,
+                    'assigned_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
+        }
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $emailWarning = null;
+        try {
+            Mail::raw(
+                "Hello {$employee->full_name},\n\n"
+                . "Your HR portal account has been created.\n\n"
+                . "Login URL: " . rtrim((string) config('app.url'), '/') . "/login\n"
+                . "Email: {$email}\n"
+                . "Password: Password@123\n\n"
+                . "Please change your password after first login.\n\n"
+                . "HR Team",
+                fn ($message) => $message
+                    ->to($email)
+                    ->subject('Your HR Portal Account')
+            );
+        } catch (\Throwable $exception) {
+            $emailWarning = 'Account created, but welcome email could not be sent.';
+        }
+
+        return response()->json([
+            'message' => $emailWarning
+                ?: 'Account created for ' . $employee->full_name . '. Login email sent.',
+            'user' => [
+                'id' => $user->id,
+                'email' => $user->email,
+            ],
+        ]);
+    }
+
     public function update(Request $request, $id)
     {
+        abort_if(! $this->can('edit employees'), 403, 'Forbidden');
+
         $employee = Employee::findOrFail($id);
         $validated = $this->validateEmployee($request, $id);
 
@@ -193,23 +282,20 @@ class EmployeeController extends Controller
     public function updateAvatar(Request $request, $id)
     {
         $employee = Employee::findOrFail($id);
+        $user = $request->user();
+        abort_if(! $user, 401);
 
-        $request->validate([
-            'avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
-        ]);
+        $userEmail = mb_strtolower(trim((string) $user->email));
+        $isOwnProfile = $userEmail !== ''
+            && in_array($userEmail, [
+                mb_strtolower(trim((string) $employee->work_email)),
+                mb_strtolower(trim((string) $employee->personal_email)),
+            ], true);
+        $isAdmin = $user->isHrAdmin();
 
-        if ($employee->avatar) {
-            Storage::disk('public')->delete($employee->avatar);
-        }
+        abort_if(! $isOwnProfile && ! $isAdmin, 403, 'You can only update your own avatar.');
 
-        $path = $request->file('avatar')->store('hr/avatars', 'public');
-        $employee->avatar = $path;
-
-        if (Schema::hasColumn('employees', 'profile_photo_path')) {
-            $employee->profile_photo_path = $path;
-        }
-
-        $employee->save();
+        $this->applyAvatarUpload($request, $employee);
 
         $this->recordActivity($employee->id, optional($request->user())->name, 'Avatar Updated', 'Employee profile photo was updated.');
 
@@ -219,9 +305,41 @@ class EmployeeController extends Controller
         ]);
     }
 
+    public function updateMyAvatar(Request $request)
+    {
+        $employee = $this->resolveEmployeeForAuthenticatedUser($request);
+
+        if (! $employee) {
+            return response()->json([
+                'message' => 'No linked employee profile found for this account.',
+            ], 404);
+        }
+
+        $this->applyAvatarUpload($request, $employee);
+        $this->recordActivity($employee->id, optional($request->user())->name, 'Avatar Updated', 'Employee profile photo was updated.');
+
+        return response()->json([
+            'employee_id' => $employee->id,
+            'avatar_url' => $employee->fresh()->avatar_url,
+            'message' => 'Profile photo updated.',
+        ]);
+    }
+
     public function removeAvatar(Request $request, $id)
     {
         $employee = Employee::findOrFail($id);
+        $user = $request->user();
+        abort_if(! $user, 401);
+
+        $userEmail = mb_strtolower(trim((string) $user->email));
+        $isOwnProfile = $userEmail !== ''
+            && in_array($userEmail, [
+                mb_strtolower(trim((string) $employee->work_email)),
+                mb_strtolower(trim((string) $employee->personal_email)),
+            ], true);
+        $isAdmin = $user->isHrAdmin();
+
+        abort_if(! $isOwnProfile && ! $isAdmin, 403, 'You can only update your own avatar.');
 
         if ($employee->avatar) {
             Storage::disk('public')->delete($employee->avatar);
@@ -264,6 +382,8 @@ class EmployeeController extends Controller
 
     public function destroy($id)
     {
+        abort_if(! $this->can('delete employees'), 403, 'Forbidden');
+
         $employee = Employee::findOrFail($id);
         $employee->delete();
 
@@ -697,4 +817,101 @@ class EmployeeController extends Controller
             'description' => $description,
         ]);
     }
+
+    private function applyAvatarUpload(Request $request, Employee $employee): void
+    {
+        $request->validate([
+            'avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        if ($employee->avatar) {
+            Storage::disk('public')->delete($employee->avatar);
+        }
+
+        $path = $request->file('avatar')->store('hr/avatars', 'public');
+        $employee->avatar = $path;
+
+        if (Schema::hasColumn('employees', 'profile_photo_path')) {
+            $employee->profile_photo_path = $path;
+        }
+
+        $employee->save();
+    }
+
+    private function resolveEmployeeForAuthenticatedUser(Request $request): ?Employee
+    {
+        $user = $request->user();
+        if (! $user) {
+            return null;
+        }
+
+        if ($user->email) {
+            $email = mb_strtolower((string) $user->email);
+            $employee = Employee::query()
+                ->where(function ($query) use ($email) {
+                    $query->whereRaw('LOWER(work_email) = ?', [$email])
+                        ->orWhereRaw('LOWER(personal_email) = ?', [$email]);
+                })
+                ->first();
+
+            if ($employee) {
+                return $employee;
+            }
+        }
+
+        $name = trim((string) ($user->name ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $normalized = mb_strtolower(preg_replace('/\s+/', ' ', $name) ?? $name);
+        $parts = array_values(array_filter(explode(' ', $normalized)));
+        $first = $parts[0] ?? null;
+        $last = count($parts) > 1 ? $parts[count($parts) - 1] : null;
+
+        return Employee::query()
+            ->where(function ($query) use ($normalized, $first, $last) {
+                $query->whereRaw('LOWER(first_name) = ?', [$normalized]);
+
+                if ($first) {
+                    $query->orWhereRaw('LOWER(first_name) = ?', [$first]);
+                }
+
+                if ($first && $last) {
+                    $query->orWhere(function ($nested) use ($first, $last) {
+                        $nested->whereRaw('LOWER(first_name) = ?', [$first])
+                            ->whereRaw('LOWER(last_name) = ?', [$last]);
+                    });
+                }
+            })
+            ->orderByDesc('updated_at')
+            ->first();
+    }
+
+    private function resolveEmployeeLoginEmail(Employee $employee): ?string
+    {
+        $email = $employee->work_email ?: $employee->personal_email;
+
+        if (! $email) {
+            return null;
+        }
+
+        return mb_strtolower(trim((string) $email));
+    }
+
+    private function userExistsByEmail(?string $email): bool
+    {
+        if (! $email) {
+            return false;
+        }
+
+        return User::whereRaw('LOWER(email) = ?', [mb_strtolower($email)])->exists();
+    }
+
+    private function employeeHasUserAccount(Employee $employee): bool
+    {
+        return $this->userExistsByEmail($this->resolveEmployeeLoginEmail($employee));
+    }
 }
+
+

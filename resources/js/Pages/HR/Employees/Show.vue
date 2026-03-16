@@ -1,12 +1,12 @@
 ﻿<template>
   <DashboardLayout>
-    <EmployeeProfilePage :employee-id="Number(id)" />
+    <EmployeeShow :employee-id="Number(id)" />
   </DashboardLayout>
 </template>
 
 <script setup>
 import DashboardLayout from '@/layouts/dashboard/DashboardLayout.vue';
-import EmployeeProfilePage from '@/views/hr/employees/EmployeeProfilePage.vue';
+import EmployeeShow from '@/views/hr/employees/Show.vue';
 
 defineProps({
   id: {

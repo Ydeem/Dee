@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 interface AttendanceRecord {
   id: number;
@@ -43,6 +45,9 @@ const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Attendance', disabled: true, href: '#' }
 ];
+
+const { can } = usePermissions();
+const canViewAttendance = computed(() => can('view attendance'));
 
 const records = ref<AttendanceRecord[]>([]);
 const todayStats = ref({
@@ -406,6 +411,9 @@ onMounted(() => fetchAttendance());
 <template>
   <BaseBreadcrumb title="Attendance" subtitle="Track daily employee attendance" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewAttendance" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h3 mb-1">Attendance</h2>
@@ -652,6 +660,7 @@ onMounted(() => fetchAttendance());
   </v-dialog>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+  </template>
 </template>
 
 <style scoped>
@@ -667,3 +676,4 @@ onMounted(() => fetchAttendance());
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 </style>
+

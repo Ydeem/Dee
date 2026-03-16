@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue'
+import SendMessageDialog from '@/components/HR/SendMessageDialog.vue'
 
 interface ApplicantRow {
   id: number
@@ -125,6 +126,8 @@ const convertingApplicant = ref<{ id: number; full_name: string } | null>(null)
 const deleteDialog = ref(false)
 const deleting = ref(false)
 const deletingApplicant = ref<ApplicantRow | null>(null)
+const messageDialog = ref(false)
+const messageTarget = ref<{ id: number; full_name: string; email: string } | null>(null)
 
 const statuses = ['New', 'Reviewing', 'Shortlisted', 'Interview Scheduled', 'Interviewed', 'Offer Sent', 'Hired', 'Rejected', 'Withdrawn']
 const sources = ['Website', 'LinkedIn', 'Referral', 'Job Board', 'Walk-in', 'Other']
@@ -338,6 +341,15 @@ function askDelete(applicant: ApplicantRow) {
   deleteDialog.value = true
 }
 
+function openMessageDialog(applicant: ApplicantRow) {
+  messageTarget.value = {
+    id: applicant.id,
+    full_name: applicant.full_name,
+    email: applicant.email,
+  }
+  messageDialog.value = true
+}
+
 async function confirmDelete() {
   if (!deletingApplicant.value) return
   deleting.value = true
@@ -477,6 +489,7 @@ onMounted(async () => {
                   </template>
                   <v-list density="compact">
                     <v-list-item prepend-icon="mdi-eye" title="View Details" @click="openViewDrawer(app)" />
+                    <v-list-item prepend-icon="mdi-email-outline" title="Send Email" @click="openMessageDialog(app)" />
                     <v-list-item prepend-icon="mdi-arrow-right-circle" title="Move to Next Stage" :disabled="app.stage >= 5" @click="moveToNextStage(app)" />
                     <v-list-item v-if="app.stage < 3" prepend-icon="mdi-calendar-clock" title="Schedule Interview" @click="moveToStage(app, 3)" />
                     <v-list-item v-if="app.stage === 3" prepend-icon="mdi-email-send" title="Send Offer" @click="moveToStage(app, 4)" />
@@ -606,6 +619,16 @@ onMounted(async () => {
   </v-dialog>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+
+  <SendMessageDialog
+    v-model="messageDialog"
+    recipient-type="applicant"
+    :recipient-id="messageTarget?.id"
+    :recipient-name="messageTarget?.full_name"
+    :recipient-email="messageTarget?.email"
+    default-category="recruitment"
+    @sent="fetchApplicants"
+  />
 </template>
 
 <style scoped>

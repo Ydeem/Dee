@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
+import { usePermissions } from '@/composables/usePermissions';
 import { appUrl } from '@/utils/appUrl';
 
 interface EmployeeItem {
@@ -30,6 +32,12 @@ const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Employees', disabled: true, href: '#' }
 ];
+
+const { can } = usePermissions();
+const canViewEmployees = computed(() => can('view employees'));
+const canCreateEmployees = computed(() => can('create employees'));
+const canEditEmployees = computed(() => can('edit employees'));
+const canDeleteEmployees = computed(() => can('delete employees'));
 
 const loading = ref(true);
 const viewMode = ref<'table' | 'grid'>('table');
@@ -483,6 +491,9 @@ onMounted(async () => {
 <template>
   <BaseBreadcrumb title="Employees" subtitle="Manage your workforce" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewEmployees" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h3 mb-1">Employees</h2>
@@ -490,7 +501,7 @@ onMounted(async () => {
     </div>
     <div class="d-flex ga-2">
       <v-btn variant="outlined" prepend-icon="mdi-upload" @click="openImportDialog">Import Employees</v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openAddEmployeePage">Add Employee</v-btn>
+      <v-btn v-if="canCreateEmployees" color="primary" prepend-icon="mdi-plus" @click="openAddEmployeePage">Add Employee</v-btn>
     </div>
   </div>
 
@@ -554,6 +565,7 @@ onMounted(async () => {
             Get started by adding your first employee
           </p>
           <v-btn
+            v-if="canCreateEmployees"
             color="primary"
             variant="flat"
             prepend-icon="mdi-plus"
@@ -609,10 +621,10 @@ onMounted(async () => {
               </template>
               <v-list>
                 <v-list-item title="View Profile" @click="viewProfile(rowData(item))" />
-                <v-list-item title="Edit Employee" @click="openEditEmployeePage(rowData(item))" />
-                <v-list-item title="Assign to Department" @click="openEditEmployeePage(rowData(item))" />
+                <v-list-item v-if="canEditEmployees" title="Edit Employee" @click="openEditEmployeePage(rowData(item))" />
+                <v-list-item v-if="canEditEmployees" title="Assign to Department" @click="openEditEmployeePage(rowData(item))" />
                 <v-list-item :title="rowData(item).employment_status === 'Active' ? 'Deactivate' : 'Activate'" @click="askStatus(rowData(item))" />
-                <v-list-item title="Delete" base-color="error" @click="askDelete(rowData(item))" />
+                <v-list-item v-if="canDeleteEmployees" title="Delete" base-color="error" @click="askDelete(rowData(item))" />
               </v-list>
             </v-menu>
           </template>
@@ -700,6 +712,7 @@ onMounted(async () => {
   </v-dialog>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+  </template>
 </template>
 
 <style scoped>

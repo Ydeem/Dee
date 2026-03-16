@@ -93,6 +93,11 @@ class Applicant extends Model
         return $this->belongsTo(Employee::class, 'converted_employee_id');
     }
 
+    public function messages()
+    {
+        return $this->morphMany(HrMessage::class, 'recipient');
+    }
+
     public function scopeSearch($query, $term)
     {
         return $query->where(function ($q) use ($term) {

@@ -1,8 +1,9 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 interface OptionItem {
   id: number;
@@ -15,6 +16,8 @@ const props = defineProps<{
 }>();
 
 const isEdit = computed(() => props.mode === 'edit');
+const { can } = usePermissions();
+const canViewPayroll = computed(() => can('view payroll'));
 const loading = ref(true);
 const saving = ref(false);
 const tab = ref('personal');
@@ -82,6 +85,12 @@ const statuses = ['Active', 'Probation', 'Inactive', 'On Leave'];
 const payFrequencies = ['Monthly', 'Bi-weekly', 'Weekly'];
 const workLocations = ['Office', 'Remote', 'Hybrid'];
 const docCategories = ['CV/Resume', 'National ID', 'Certificates', 'Offer Letter', 'Contract', 'Other'];
+const managerOptions = computed(() =>
+  managers.value.map((manager) => ({
+    ...manager,
+    full_name: ((manager.first_name ?? '') + ' ' + (manager.last_name ?? '')).trim(),
+  }))
+);
 
 function addAllowance() {
   form.value.allowances.push({ type: '', amount: null });
@@ -162,22 +171,29 @@ async function submit(draft = false) {
       fd.set('employment_status', 'Probation');
     }
 
+    let targetEmployeeId: number | null = null;
+
     if (isEdit.value && props.employeeId) {
       fd.append('_method', 'PUT');
-      await axios.post(`/api/hr/employees/${props.employeeId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { data } = await axios.post(`/api/hr/employees/${props.employeeId}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      targetEmployeeId = Number(data?.employee?.id ?? props.employeeId ?? 0) || null;
     } else {
-      await axios.post('/api/hr/employees', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { data } = await axios.post('/api/hr/employees', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      targetEmployeeId = Number(data?.employee?.id ?? 0) || null;
     }
 
     snackbar.value = { show: true, message: draft ? 'Draft saved successfully.' : 'Employee saved successfully.', color: 'success' };
-    router.visit('/hr/employees');
+    if (targetEmployeeId) {
+      router.visit(`/hr/employees/${targetEmployeeId}`);
+    } else {
+      router.visit('/hr/employees');
+    }
   } catch (error: any) {
     snackbar.value = { show: true, message: error?.response?.data?.message ?? 'Save failed.', color: 'error' };
   } finally {
     saving.value = false;
   }
 }
-
 onMounted(async () => {
   loading.value = true;
   try {
@@ -201,7 +217,7 @@ onMounted(async () => {
       <v-tabs v-model="tab" color="primary" grow>
         <v-tab value="personal">Personal Information</v-tab>
         <v-tab value="employment">Employment Details</v-tab>
-        <v-tab value="payroll">Salary & Payroll</v-tab>
+        <v-tab v-if="canViewPayroll" value="payroll">Salary & Payroll</v-tab>
         <v-tab value="documents">Documents</v-tab>
       </v-tabs>
 
@@ -236,13 +252,13 @@ onMounted(async () => {
             <v-col cols="12" sm="6"><v-select v-model="form.employment_type" :items="employmentTypes" label="Employment Type *" variant="outlined" /></v-col>
             <v-col cols="12" sm="6"><v-select v-model="form.employment_status" :items="statuses" label="Employment Status" variant="outlined" /></v-col>
             <v-col cols="12" sm="6"><v-text-field v-model="form.join_date" type="date" label="Join Date *" variant="outlined" /></v-col>
-            <v-col cols="12" sm="6"><v-select v-model="form.reporting_manager_id" :items="managers" item-title="first_name" item-value="id" label="Reporting Manager" variant="outlined" /></v-col>
+            <v-col cols="12" sm="6"><v-select v-model="form.reporting_manager_id" :items="managerOptions" item-title="full_name" item-value="id" label="Reporting Manager" variant="outlined" /></v-col>
             <v-col cols="12" sm="6"><v-select v-model="form.work_location" :items="workLocations" label="Work Location" variant="outlined" /></v-col>
             <v-col cols="12" sm="6"><v-select v-model="form.shift_id" :items="shifts" item-title="name" item-value="id" label="Shift" variant="outlined" /></v-col>
           </v-row>
         </v-window-item>
 
-        <v-window-item value="payroll">
+        <v-window-item v-if="canViewPayroll" value="payroll">
           <v-row>
             <v-col cols="12" sm="6"><v-text-field v-model="form.basic_salary" type="number" label="Basic Salary *" variant="outlined" /></v-col>
             <v-col cols="12" sm="6"><v-select v-model="form.pay_frequency" :items="payFrequencies" label="Pay Frequency" variant="outlined" /></v-col>

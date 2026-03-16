@@ -7,6 +7,8 @@ use App\Models\HR\Department;
 use App\Models\HR\Employee;
 use App\Models\HR\LeaveRequest;
 use App\Models\HR\LeaveType;
+use App\Models\User;
+use App\Notifications\HR\LeaveRequestNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -23,6 +25,11 @@ class LeaveRequestController extends Controller
             'leaveType:id,name,color',
         ])
             ->whereHas('employee')
+            ->when($request->boolean('today'), function ($query) {
+                $today = now()->toDateString();
+                $query->whereDate('from_date', '<=', $today)
+                    ->whereDate('to_date', '>=', $today);
+            })
             ->when($month, fn ($q) => $q->whereMonth('from_date', $month))
             ->when($year, fn ($q) => $q->whereYear('from_date', $year))
             ->when($request->search, fn ($q) =>
@@ -183,6 +190,8 @@ class LeaveRequestController extends Controller
 
     public function approve(int $id)
     {
+        abort_if(! $this->canAny(['approve leave', 'approve leave requests']), 403, 'Forbidden');
+
         $leave = LeaveRequest::with('employee')->findOrFail($id);
 
         if ($leave->status !== 'Pending') {
@@ -199,6 +208,17 @@ class LeaveRequestController extends Controller
             'approved_at' => now(),
         ]);
 
+        $recipient = $this->resolveUserForEmployee($leave->employee);
+        if ($recipient && $recipient->settings->notify_leave_approved) {
+            $recipient->notify(new LeaveRequestNotification(
+                message: 'Your leave request was approved',
+                type: 'leave_approved',
+                link: '/hr/leave-management',
+                icon: 'mdi-calendar-check',
+                color: 'success',
+            ));
+        }
+
         return response()->json([
             'message' => 'Leave approved for ' . ($leave->employee?->first_name ?? 'employee') . '.',
         ]);
@@ -206,6 +226,8 @@ class LeaveRequestController extends Controller
 
     public function reject(Request $request, int $id)
     {
+        abort_if(! $this->canAny(['approve leave', 'approve leave requests']), 403, 'Forbidden');
+
         $leave = LeaveRequest::with('employee')->findOrFail($id);
 
         if (! in_array($leave->status, ['Pending', 'Approved'], true)) {
@@ -356,5 +378,25 @@ class LeaveRequestController extends Controller
             ->where('work_email', $user->email)
             ->orWhere('personal_email', $user->email)
             ->value('id');
+    }
+
+    private function resolveUserForEmployee(?Employee $employee): ?User
+    {
+        if (! $employee) {
+            return null;
+        }
+
+        $emails = collect([$employee->work_email, $employee->personal_email])
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($emails === []) {
+            return null;
+        }
+
+        return User::query()
+            ->whereIn('email', $emails)
+            ->first();
     }
 }

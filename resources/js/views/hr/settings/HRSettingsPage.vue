@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import axios from 'axios';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
 import { usePermissions } from '@/composables/usePermissions';
 
 type SectionKey = 'company' | 'payroll' | 'leave' | 'attendance' | 'recruitment';
@@ -12,7 +13,7 @@ const breadcrumbs = [
   { title: 'HR Settings', disabled: true, href: '#' }
 ];
 
-const { can } = usePermissions();
+const { isAdmin } = usePermissions();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -102,7 +103,7 @@ const sections = [
   }
 ];
 
-const canEdit = computed(() => can('edit hr settings'));
+const canEdit = computed(() => isAdmin.value);
 
 function showSnackbar(message: string, color: 'success' | 'error' = 'success') {
   snackbar.value = { show: true, message, color };
@@ -182,6 +183,9 @@ onMounted(() => {
     :breadcrumbs="breadcrumbs"
   />
 
+  <UnauthorizedPage v-if="!isAdmin" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-3 mb-4">
     <div>
       <h2 class="text-h3 mb-1">HR Settings</h2>
@@ -593,6 +597,7 @@ onMounted(() => {
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
     {{ snackbar.message }}
   </v-snackbar>
+  </template>
 </template>
 
 <style scoped>
@@ -619,3 +624,4 @@ onMounted(() => {
   }
 }
 </style>
+

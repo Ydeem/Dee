@@ -1,11 +1,22 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import axios from 'axios';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import SendMessageDialog from '@/components/HR/SendMessageDialog.vue';
+import CreatePortalAccountDialog from '@/components/HR/CreatePortalAccountDialog.vue';
+import { usePermissions } from '@/composables/usePermissions';
 import { appUrl } from '@/utils/appUrl';
 
 const props = defineProps<{ employeeId: number }>();
+const page = usePage();
+const { can, isAdmin } = usePermissions();
+const canViewPayroll = computed(() => can('view payroll'));
+const canManagePortal = computed(() => isAdmin.value);
+const currentUserEmployeeId = computed<number | null>(() => {
+  const employeeId = (page.props as any)?.auth?.user?.employee_id;
+  return typeof employeeId === 'number' ? employeeId : null;
+});
 
 const loadingProfile = ref(true);
 const loadingAttendance = ref(true);
@@ -26,6 +37,21 @@ const avatarUploading = ref(false);
 const avatarRemoving = ref(false);
 const avatarInputRef = ref<HTMLInputElement | null>(null);
 
+const loadingAccountStatus = ref(false);
+const creatingAccount = ref(false);
+const accountStatus = ref({
+  has_account: false,
+  user_id: null as number | null,
+  user_name: null as string | null,
+  user_email: null as string | null,
+  role: null as string | null,
+  role_id: null as number | null,
+  role_color: null as string | null,
+  created_at: null as string | null,
+});
+const createAccountDialog = ref(false);
+const roleOptions = ref<Array<{ id: number; name: string; color?: string | null }>>([]);
+
 const editableSkills = ref<string[]>([]);
 const newSkill = ref('');
 const notes = ref('');
@@ -33,6 +59,7 @@ const bio = ref('');
 
 const snackbar = ref({ show: false, message: '', color: 'success' });
 const confirmDialog = ref({ show: false, title: '', message: '', action: '', payload: null as any });
+const messageDialog = ref(false);
 
 const breadcrumbs = computed(() => [
   { title: 'HR Module', disabled: false, href: '#' },
@@ -51,6 +78,8 @@ const quickStats = computed(() => {
     { label: 'Last Active', value: employee.value?.last_active_at ?? 'N/A' }
   ];
 });
+
+const hasPortalAccount = computed(() => accountStatus.value.has_account);
 
 function statusColor(status: string) {
   if (status === 'Active' || status === 'Done' || status === 'Approved' || status === 'Present') return 'success';
@@ -97,6 +126,16 @@ async function onAvatarFileSelected(event: Event) {
     return;
   }
 
+  if (file.size > 2 * 1024 * 1024) {
+    snackbar.value = {
+      show: true,
+      message: 'Image must be under 2MB.',
+      color: 'error'
+    };
+    target.value = '';
+    return;
+  }
+
   avatarUploading.value = true;
 
   try {
@@ -112,6 +151,9 @@ async function onAvatarFileSelected(event: Event) {
     }
 
     profileAvatarFailed.value = false;
+    if (currentUserEmployeeId.value === props.employeeId) {
+      router.reload({ only: ['auth'] });
+    }
     snackbar.value = { show: true, message: data?.message ?? 'Profile photo updated.', color: 'success' };
   } catch (error: any) {
     snackbar.value = {
@@ -134,6 +176,9 @@ async function removeAvatar() {
       employee.value.avatar_url = null;
     }
     profileAvatarFailed.value = false;
+    if (currentUserEmployeeId.value === props.employeeId) {
+      router.reload({ only: ['auth'] });
+    }
     snackbar.value = { show: true, message: data?.message ?? 'Profile photo removed.', color: 'success' };
   } catch (error: any) {
     snackbar.value = {
@@ -143,6 +188,82 @@ async function removeAvatar() {
     };
   } finally {
     avatarRemoving.value = false;
+  }
+}
+
+function openCreateAccountDialog() {
+  createAccountDialog.value = true;
+}
+
+async function fetchAccountStatus() {
+  if (!canManagePortal.value) return;
+
+  loadingAccountStatus.value = true;
+  try {
+    const { data } = await axios.get(`/api/hr/employees/${props.employeeId}/account-status`);
+    accountStatus.value = {
+      has_account: Boolean(data?.has_account),
+      user_id: data?.user_id ?? null,
+      user_name: data?.user_name ?? null,
+      user_email: data?.user_email ?? null,
+      role: data?.role ?? null,
+      role_id: data?.role_id ?? null,
+      role_color: data?.role_color ?? null,
+      created_at: data?.created_at ?? null,
+    };
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to load account status.',
+      color: 'error',
+    };
+  } finally {
+    loadingAccountStatus.value = false;
+  }
+}
+
+async function fetchRoleOptions() {
+  if (!canManagePortal.value) return;
+
+  try {
+    const { data } = await axios.get('/api/hr/roles');
+    roleOptions.value = (data?.roles ?? []).map((role: any) => ({
+      id: role.id,
+      name: role.name,
+      color: role.color ?? 'primary',
+    }));
+  } catch {
+    roleOptions.value = [];
+  }
+}
+
+async function handleCreateAccount(payload: {
+  name: string;
+  email: string;
+  username: string;
+  password: string;
+  role_id: number;
+  send_email: boolean;
+}) {
+  creatingAccount.value = true;
+
+  try {
+    const { data } = await axios.post(`/api/hr/employees/${props.employeeId}/create-account`, payload);
+    createAccountDialog.value = false;
+    snackbar.value = {
+      show: true,
+      message: data?.message ?? 'Portal account created.',
+      color: 'success',
+    };
+    await fetchAccountStatus();
+  } catch (error: any) {
+    snackbar.value = {
+      show: true,
+      message: error?.response?.data?.message ?? 'Failed to create portal account.',
+      color: 'error',
+    };
+  } finally {
+    creatingAccount.value = false;
   }
 }
 
@@ -191,6 +312,12 @@ async function fetchLeave() {
 }
 
 async function fetchPayroll() {
+  if (!canViewPayroll.value) {
+    payrollData.value = { salary: { basic_salary: 0, allowances: [], deductions: 0, net_pay: 0 }, history: [] };
+    loadingPayroll.value = false;
+    return;
+  }
+
   loadingPayroll.value = true;
   try {
     const { data } = await axios.get(`/api/hr/employees/${props.employeeId}/payroll`);
@@ -277,6 +404,22 @@ function askDeleteDocument(document: any) {
   openConfirm('Delete Document', `Delete ${document.file_name}?`, 'deleteDocument', document);
 }
 
+function confirmResetPortalPassword() {
+  openConfirm(
+    'Reset Portal Password',
+    'Reset this employee password and send a new temporary password by email?',
+    'resetPortalPassword'
+  );
+}
+
+function confirmRevokePortalAccess() {
+  openConfirm(
+    'Revoke Portal Access',
+    'This will remove all assigned portal roles and disable current login credentials. Continue?',
+    'revokePortalAccess'
+  );
+}
+
 async function runConfirmedAction() {
   const action = confirmDialog.value.action;
   const payload = confirmDialog.value.payload;
@@ -300,6 +443,28 @@ async function runConfirmedAction() {
       fetchProfile();
     }
 
+    if (action === 'resetPortalPassword') {
+      const { data } = await axios.post(`/api/hr/employees/${props.employeeId}/reset-password`, {
+        send_email: true,
+      });
+      snackbar.value = {
+        show: true,
+        message: `${data?.message ?? 'Password reset.'} Temporary password: ${data?.new_password ?? ''}`,
+        color: 'success',
+      };
+      await fetchAccountStatus();
+    }
+
+    if (action === 'revokePortalAccess') {
+      const { data } = await axios.delete(`/api/hr/employees/${props.employeeId}/revoke-access`);
+      snackbar.value = {
+        show: true,
+        message: data?.message ?? 'Portal access revoked.',
+        color: 'success',
+      };
+      await fetchAccountStatus();
+    }
+
     confirmDialog.value.show = false;
   } catch (error: any) {
     snackbar.value = { show: true, message: error?.response?.data?.message ?? 'Action failed.', color: 'error' };
@@ -310,8 +475,13 @@ function placeholderAction(label: string) {
   snackbar.value = { show: true, message: `${label} action queued.`, color: 'info' };
 }
 
+function handleMessageSent() {
+  snackbar.value = { show: true, message: 'Message sent.', color: 'success' };
+}
+
 onMounted(async () => {
   await Promise.all([fetchProfile(), fetchAttendance(), fetchLeave(), fetchPayroll(), fetchDocuments(), fetchActivity()]);
+  await Promise.all([fetchRoleOptions(), fetchAccountStatus()]);
 });
 </script>
 
@@ -395,7 +565,26 @@ onMounted(async () => {
         >
           <img src="/assets/images/icons/pencil-edit.svg" alt="Edit employee" class="pencil-icon-img" />
         </v-btn>
-        <v-btn variant="outlined" prepend-icon="mdi-message-text-outline" @click="placeholderAction('Message')">Send Message</v-btn>
+        <v-btn
+          v-if="canManagePortal && !hasPortalAccount"
+          variant="tonal"
+          color="success"
+          prepend-icon="mdi-account-plus"
+          :loading="creatingAccount || loadingAccountStatus"
+          @click="openCreateAccountDialog"
+        >
+          Create Login Account
+        </v-btn>
+        <v-chip
+          v-else-if="canManagePortal && hasPortalAccount"
+          color="success"
+          variant="tonal"
+          size="small"
+          prepend-icon="mdi-check-circle"
+        >
+          Portal Access Active
+        </v-chip>
+        <v-btn variant="outlined" prepend-icon="mdi-message-text-outline" @click="messageDialog = true">Send Message</v-btn>
         <v-menu>
           <template #activator="{ props }">
             <v-btn icon variant="text" v-bind="props">
@@ -404,7 +593,12 @@ onMounted(async () => {
           </template>
           <v-list>
             <v-list-item title="Deactivate" @click="openConfirm('Deactivate Employee', 'Set this employee to Inactive?', 'setStatus', { status: 'Inactive' })" />
-            <v-list-item title="Reset Password" @click="placeholderAction('Reset password')" />
+            <v-list-item
+              v-if="canManagePortal && hasPortalAccount"
+              title="Reset Portal Password"
+              @click="confirmResetPortalPassword"
+            />
+            <v-list-item v-else title="Reset Password" @click="placeholderAction('Reset password')" />
             <v-list-item title="Delete" base-color="error" @click="openConfirm('Delete Employee', 'Delete this employee record?', 'deleteEmployee')" />
           </v-list>
         </v-menu>
@@ -419,7 +613,7 @@ onMounted(async () => {
           <v-tab value="overview">Overview</v-tab>
           <v-tab value="attendance">Attendance</v-tab>
           <v-tab value="leave">Leave</v-tab>
-          <v-tab value="payroll">Payroll</v-tab>
+          <v-tab v-if="canViewPayroll" value="payroll">Payroll</v-tab>
           <v-tab value="documents">Documents</v-tab>
           <v-tab value="activity">Activity Log</v-tab>
         </v-tabs>
@@ -542,7 +736,7 @@ onMounted(async () => {
               </template>
             </v-window-item>
 
-            <v-window-item value="payroll">
+            <v-window-item v-if="canViewPayroll" value="payroll">
               <v-skeleton-loader v-if="loadingPayroll" type="table" />
               <template v-else>
                 <v-row class="mb-4">
@@ -613,6 +807,55 @@ onMounted(async () => {
     </v-col>
 
     <v-col cols="12" lg="4">
+      <v-card v-if="canManagePortal" class="bg-surface hr-card-shadow rounded-lg mb-4" variant="outlined" elevation="0">
+        <v-card-title class="d-flex align-center ga-2">
+          <v-icon :color="hasPortalAccount ? 'success' : 'warning'">
+            {{ hasPortalAccount ? 'mdi-check-circle' : 'mdi-lock' }}
+          </v-icon>
+          <span>
+            {{ hasPortalAccount ? 'Portal Access - Active' : 'Portal Access' }}
+          </span>
+        </v-card-title>
+        <v-divider />
+        <v-card-text>
+          <template v-if="loadingAccountStatus">
+            <v-skeleton-loader type="list-item-two-line" />
+          </template>
+          <template v-else-if="!hasPortalAccount">
+            <p class="text-body-2 text-medium-emphasis mb-4">
+              This employee does not have a portal account yet.
+            </p>
+            <v-btn
+              color="success"
+              variant="flat"
+              prepend-icon="mdi-account-plus"
+              :loading="creatingAccount"
+              @click="openCreateAccountDialog"
+            >
+              Create Login Account
+            </v-btn>
+          </template>
+          <template v-else>
+            <div class="text-body-2 mb-1"><strong>Email:</strong> {{ accountStatus.user_email }}</div>
+            <div class="text-body-2 mb-1 d-flex align-center ga-2">
+              <strong>Role:</strong>
+              <v-chip size="x-small" :color="accountStatus.role_color || 'primary'" variant="tonal">
+                {{ accountStatus.role || 'Employee' }}
+              </v-chip>
+            </div>
+            <div class="text-body-2 mb-4"><strong>Since:</strong> {{ accountStatus.created_at || '-' }}</div>
+            <div class="d-flex ga-2 flex-wrap">
+              <v-btn color="warning" variant="tonal" prepend-icon="mdi-lock-reset" @click="confirmResetPortalPassword">
+                Reset Password
+              </v-btn>
+              <v-btn color="error" variant="tonal" prepend-icon="mdi-account-cancel" @click="confirmRevokePortalAccess">
+                Revoke Access
+              </v-btn>
+            </div>
+          </template>
+        </v-card-text>
+      </v-card>
+
       <v-card class="bg-surface hr-card-shadow rounded-lg mb-4" variant="outlined" elevation="0">
         <v-card-title>Quick Stats</v-card-title>
         <v-divider />
@@ -678,6 +921,32 @@ onMounted(async () => {
   </v-dialog>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
+
+  <SendMessageDialog
+    v-model="messageDialog"
+    recipient-type="employee"
+    :recipient-id="props.employeeId"
+    :recipient-name="employee?.full_name"
+    :recipient-email="employee?.work_email || employee?.personal_email"
+    default-category="general"
+    @sent="handleMessageSent"
+  />
+
+  <CreatePortalAccountDialog
+    v-if="canManagePortal"
+    v-model="createAccountDialog"
+    :employee="employee ? {
+      id: employee.id,
+      first_name: employee.first_name,
+      last_name: employee.last_name,
+      full_name: employee.full_name,
+      work_email: employee.work_email,
+      personal_email: employee.personal_email,
+    } : null"
+    :roles="roleOptions"
+    :submitting="creatingAccount"
+    @create="handleCreateAccount"
+  />
 </template>
 
 <style scoped>
@@ -739,3 +1008,6 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
 }
 </style>
+
+
+

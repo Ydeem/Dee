@@ -53,6 +53,8 @@ class HrSettingsController extends Controller
 
     public function index()
     {
+        $this->authorizeAdmin();
+
         $stored = HrSetting::getAllSettings();
         $merged = array_merge($this->defaults, $stored);
 
@@ -110,6 +112,8 @@ class HrSettingsController extends Controller
 
     public function saveCompany(Request $request)
     {
+        $this->authorizeAdmin();
+
         $request->validate([
             'company_name' => 'required|string|max:200',
             'hr_email' => 'nullable|email',
@@ -137,6 +141,8 @@ class HrSettingsController extends Controller
 
     public function savePayroll(Request $request)
     {
+        $this->authorizeAdmin();
+
         $request->validate([
             'pay_cycle' => 'required|in:Weekly,Bi-weekly,Monthly',
             'pay_day' => 'required|integer|between:1,31',
@@ -162,6 +168,8 @@ class HrSettingsController extends Controller
 
     public function saveLeave(Request $request)
     {
+        $this->authorizeAdmin();
+
         HrSetting::setMany([
             'leave_approval_levels' => $request->leave_approval_levels ?? '1',
             'leave_carry_forward' => $request->leave_carry_forward ? '1' : '0',
@@ -179,6 +187,8 @@ class HrSettingsController extends Controller
 
     public function saveAttendance(Request $request)
     {
+        $this->authorizeAdmin();
+
         $request->validate([
             'work_start_time' => 'required|date_format:H:i',
             'work_end_time' => 'required|date_format:H:i',
@@ -203,6 +213,8 @@ class HrSettingsController extends Controller
 
     public function saveRecruitment(Request $request)
     {
+        $this->authorizeAdmin();
+
         $request->validate([
             'max_resume_size_mb' => 'required|integer|min:1|max:20',
         ]);
@@ -227,6 +239,8 @@ class HrSettingsController extends Controller
      */
     public function saveLegacy(Request $request)
     {
+        $this->authorizeAdmin();
+
         $request->validate([
             'settings' => 'required|array',
         ]);
@@ -285,5 +299,10 @@ class HrSettingsController extends Controller
         }
 
         return 'general';
+    }
+
+    private function authorizeAdmin(): void
+    {
+        abort_if(! $this->isAdmin(), 403, 'Only HR Admin can manage HR settings.');
     }
 }

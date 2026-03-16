@@ -43,6 +43,7 @@ class Employee extends Model
         'tin',
         'ssnit',
         'bio',
+        'socials',
         'skills',
         'pay_frequency',
         'allowances',
@@ -54,6 +55,7 @@ class Employee extends Model
         'join_date' => 'date:Y-m-d',
         'date_of_birth' => 'date:Y-m-d',
         'skills' => 'array',
+        'socials' => 'array',
         'allowances' => 'array',
         'basic_salary' => 'decimal:2',
         'last_active_at' => 'datetime',
@@ -126,6 +128,32 @@ class Employee extends Model
         );
     }
 
+    public function getSocialsAttribute($value): array
+    {
+        $defaults = [
+            'linkedin' => '',
+            'twitter' => '',
+            'github' => '',
+            'instagram' => '',
+            'facebook' => '',
+            'website' => '',
+        ];
+
+        if (is_array($value)) {
+            return array_merge($defaults, $value);
+        }
+
+        if (is_string($value) && $value !== '') {
+            $decoded = json_decode($value, true);
+
+            if (is_array($decoded)) {
+                return array_merge($defaults, $decoded);
+            }
+        }
+
+        return $defaults;
+    }
+
     public function department()
     {
         return $this->belongsTo(Department::class);
@@ -189,6 +217,11 @@ class Employee extends Model
     public function documents()
     {
         return $this->hasMany(EmployeeDocument::class);
+    }
+
+    public function messages()
+    {
+        return $this->morphMany(HrMessage::class, 'recipient');
     }
 
     public function scopeActive($query)

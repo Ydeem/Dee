@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import axios from 'axios';
 import { useCustomizerStore } from '../../../stores/customizer';
 import sidebarItems from './sidebarItem';
 import { usePermissions } from '@/composables/usePermissions';
@@ -10,44 +11,135 @@ import NavCollapse from './NavCollapse/NavCollapse.vue';
 import Logo from '../logo/LogoMain.vue';
 
 const customizer = useCustomizerStore();
-const { can, isAdmin } = usePermissions();
+const { canAny, isAdmin } = usePermissions();
+const unreadMessages = ref(0);
 
-const permissionMap: Record<string, string> = {
-  '/hr/dashboard': 'view hr dashboard',
-  '/hr/employees': 'view employees',
-  '/hr/departments': 'view departments',
-  '/hr/designations': 'view designations',
-  '/hr/attendance': 'view attendance',
-  '/hr/leave-management': 'view leave requests',
-  '/hr/shifts': 'view shifts',
-  '/hr/job-openings': 'view job openings',
-  '/hr/applicants': 'view applicants',
-  '/hr/onboarding': 'view onboarding',
-  '/hr/payroll': 'view payroll',
-  '/hr/expenses': 'view expenses',
-  '/hr/reports': 'view reports',
-  '/hr/settings': 'view hr settings',
-  '/hr/roles-permissions': 'manage roles'
-};
+function hasAccessToRoute(route?: string): boolean {
+  if (!route || route === '/dashboard' || route === '/hr/dashboard') {
+    return true;
+  }
 
-function filterItems(items: typeof sidebarItems): typeof sidebarItems {
-  return items
-    .map((item) => {
-      if (item.children?.length) {
-        const children = filterItems(item.children as typeof sidebarItems);
-        return children.length ? { ...item, children } : null;
-      }
+  if (route === '/hr/roles-permissions' || route === '/hr/settings' || route === '/hr/accounts') {
+    return isAdmin.value;
+  }
 
-      if (!item.to) return item;
-      const permission = permissionMap[item.to];
-      if (!permission) return item;
+  const routeRules: Record<string, string[]> = {
+    '/hr/employees': ['view employees'],
+    '/hr/departments': ['view departments'],
+    '/hr/designations': ['view designations'],
+    '/hr/attendance': ['view attendance'],
+    '/hr/leave-management': ['view leave', 'view leave requests'],
+    '/hr/shifts': ['view shifts'],
+    '/hr/payroll': ['view payroll'],
+    '/hr/expenses': ['view expenses'],
+    '/hr/job-openings': ['view recruitment', 'view job openings'],
+    '/hr/applicants': ['view recruitment', 'view applicants'],
+    '/hr/onboarding': ['view onboarding', 'manage onboarding'],
+    '/hr/reports': ['view reports'],
+    '/hr/messages': ['view messages', 'send messages'],
+    '/hr/announcements': ['view announcements'],
+  };
 
-      return can(permission) || isAdmin() ? item : null;
-    })
-    .filter(Boolean) as typeof sidebarItems;
+  const requiredPermissions = routeRules[route];
+  if (!requiredPermissions?.length) {
+    return true;
+  }
+
+  return canAny(...requiredPermissions);
 }
 
-const sidebarMenu = computed(() => filterItems(sidebarItems));
+const itemsWithBadges = computed(() =>
+  sidebarItems.map((item) => {
+    if (item.to === '/hr/messages') {
+      return {
+        ...item,
+        chip: unreadMessages.value > 0 ? String(unreadMessages.value) : undefined,
+        chipColor: unreadMessages.value > 0 ? 'error' : undefined,
+        chipVariant: unreadMessages.value > 0 ? 'flat' : undefined,
+      };
+    }
+
+    return item;
+  })
+);
+
+function filterItems(items: typeof sidebarItems): typeof sidebarItems {
+  const filtered: typeof sidebarItems = [];
+  let pendingHeader: (typeof sidebarItems)[number] | null = null;
+  let pendingDivider: (typeof sidebarItems)[number] | null = null;
+
+  items.forEach((item) => {
+    if (item.header) {
+      pendingHeader = item;
+      pendingDivider = null;
+      return;
+    }
+
+    if (item.divider) {
+      if (filtered.length > 0) {
+        pendingDivider = item;
+      }
+      return;
+    }
+
+    let visibleItem: (typeof sidebarItems)[number] | null = item;
+
+    if (item.children?.length) {
+      const children = filterItems(item.children as typeof sidebarItems);
+      visibleItem = children.length ? { ...item, children } : null;
+    } else if (item.to && !hasAccessToRoute(item.to)) {
+      visibleItem = null;
+    }
+
+    if (!visibleItem) {
+      return;
+    }
+
+    if (pendingHeader) {
+      filtered.push(pendingHeader);
+      pendingHeader = null;
+    }
+
+    if (pendingDivider) {
+      filtered.push(pendingDivider);
+      pendingDivider = null;
+    }
+
+    filtered.push(visibleItem);
+  });
+
+  while (filtered.length && filtered[filtered.length - 1].divider) {
+    filtered.pop();
+  }
+
+  return filtered;
+}
+
+async function fetchUnreadCount() {
+  try {
+    const { data } = await axios.get('/api/hr/messages/inbox', {
+      params: { per_page: 1 },
+    });
+
+    unreadMessages.value = Number(data?.unread_count ?? 0);
+  } catch {
+    unreadMessages.value = 0;
+  }
+}
+
+let unreadInterval: ReturnType<typeof setInterval> | null = null;
+onMounted(() => {
+  fetchUnreadCount();
+  unreadInterval = setInterval(fetchUnreadCount, 60000);
+});
+
+onUnmounted(() => {
+  if (unreadInterval) {
+    clearInterval(unreadInterval);
+  }
+});
+
+const sidebarMenu = computed(() => filterItems(itemsWithBadges.value as typeof sidebarItems));
 </script>
 
 <template>

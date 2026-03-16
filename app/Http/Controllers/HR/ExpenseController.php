@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\HR\Department;
 use App\Models\HR\Employee;
 use App\Models\HR\Expense;
+use App\Models\User;
+use App\Notifications\HR\LeaveRequestNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -164,6 +166,17 @@ class ExpenseController extends Controller
             'approved_at' => now(),
         ]);
 
+        $recipient = $this->resolveUserForEmployee($expense->employee);
+        if ($recipient && $recipient->settings->notify_expense_approved) {
+            $recipient->notify(new LeaveRequestNotification(
+                message: 'Your expense claim was approved',
+                type: 'expense_approved',
+                link: '/hr/expenses',
+                icon: 'mdi-check-circle',
+                color: 'success',
+            ));
+        }
+
         return response()->json([
             'message' => 'Expense approved for ' . ($expense->employee?->first_name ?? 'employee') . '.',
         ]);
@@ -259,5 +272,25 @@ class ExpenseController extends Controller
         }
 
         return Employee::whereKey($userId)->exists() ? (int) $userId : null;
+    }
+
+    private function resolveUserForEmployee(?Employee $employee): ?User
+    {
+        if (! $employee) {
+            return null;
+        }
+
+        $emails = collect([$employee->work_email, $employee->personal_email])
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($emails === []) {
+            return null;
+        }
+
+        return User::query()
+            ->whereIn('email', $emails)
+            ->first();
     }
 }

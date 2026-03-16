@@ -1,4 +1,4 @@
-﻿export interface menu {
+export interface menu {
   header?: string;
   title?: string;
   icon?: string;
@@ -20,7 +20,7 @@ const sidebarItem: menu[] = [
   {
     title: 'Dashboard',
     icon: 'custom-home',
-    to: '/dashboard'
+    to: '/hr/dashboard'
   },
   { header: 'WORKFORCE' },
   {
@@ -54,6 +54,17 @@ const sidebarItem: menu[] = [
     icon: 'custom-clock-outline',
     to: '/hr/shifts'
   },
+  { header: 'PAYROLL' },
+  {
+    title: 'Payroll',
+    icon: 'custom-dollar-fill',
+    to: '/hr/payroll'
+  },
+  {
+    title: 'Expenses',
+    icon: 'custom-payment-outline',
+    to: '/hr/expenses'
+  },
   { header: 'RECRUITMENT' },
   {
     title: 'Job Openings',
@@ -70,17 +81,18 @@ const sidebarItem: menu[] = [
     icon: 'custom-clipboard',
     to: '/hr/onboarding'
   },
-  { header: 'PAYROLL' },
+  { header: 'COMMUNICATIONS' },
   {
-    title: 'Payroll',
-    icon: 'custom-dollar-fill',
-    to: '/hr/payroll'
+    title: 'Messages',
+    icon: 'custom-message-outline',
+    to: '/hr/messages'
   },
   {
-    title: 'Expenses',
-    icon: 'custom-payment-outline',
-    to: '/hr/expenses'
+    title: 'Announcements',
+    icon: 'custom-notification-outline',
+    to: '/hr/announcements'
   },
+  { header: 'ANALYTICS' },
   {
     title: 'Reports',
     icon: 'custom-graph-outline',
@@ -91,6 +103,11 @@ const sidebarItem: menu[] = [
     title: 'HR Settings',
     icon: 'custom-setting-outline',
     to: '/hr/settings'
+  },
+  {
+    title: 'Portal Accounts',
+    icon: 'mdi-account-key',
+    to: '/hr/accounts'
   },
   {
     title: 'Roles & Permissions',

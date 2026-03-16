@@ -35,5 +35,6 @@ class DatabaseSeeder extends Seeder
         $this->call(ExpenseSeeder::class);
         $this->call(HRSettingSeeder::class);
         $this->call(RolesPermissionsSeeder::class);
+        $this->call(HrMessageTemplateSeeder::class);
     }
 }

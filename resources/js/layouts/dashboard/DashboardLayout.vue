@@ -3,6 +3,7 @@ import LoaderWrapper from './LoaderWrapper.vue';
 import VerticalSidebarVue from './vertical-sidebar/VerticalSidebar.vue';
 import VerticalHeaderVue from './vertical-header/VerticalHeader.vue';
 import FooterPanel from './footer/FooterPanel.vue';
+import HRChatbot from '@/components/HR/HRChatbot.vue';
 import { useCustomizerStore } from '../../stores/customizer';
 const customizer = useCustomizerStore();
 </script>
@@ -37,6 +38,7 @@ const customizer = useCustomizerStore();
           </div>
         </v-container>
       </v-main>
+      <HRChatbot />
     </v-app>
   </v-locale-provider>
 </template>

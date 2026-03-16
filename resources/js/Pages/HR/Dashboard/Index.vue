@@ -1,5 +1,11 @@
 <template>
   <DashboardLayout>
+    <template v-if="isEmployeeOnly">
+      <BaseBreadcrumb title="My Dashboard" subtitle="Self-service overview" :breadcrumbs="breadcrumbs" />
+      <EmployeeSelfServiceDashboard />
+    </template>
+
+    <template v-else>
     <BaseBreadcrumb title="HR Dashboard" subtitle="Overview of your workforce" :breadcrumbs="breadcrumbs" />
 
     <v-container fluid class="pa-0 mt-4">
@@ -8,7 +14,7 @@
       <template v-else>
         <v-row class="mb-4" dense>
           <v-col cols="12" md="4">
-            <v-card variant="outlined" class="rounded-lg cursor-pointer" @click="goToLeave">
+            <v-card variant="outlined" class="rounded-lg cursor-pointer" @click="goToLeaveToday">
               <v-card-text class="d-flex justify-space-between align-center">
                 <div>
                   <div class="text-caption text-medium-emphasis mb-1">Employees on Leave Today</div>
@@ -22,7 +28,7 @@
           </v-col>
 
           <v-col cols="12" md="4">
-            <v-card variant="outlined" class="rounded-lg cursor-pointer" @click="goToLeave">
+            <v-card variant="outlined" class="rounded-lg cursor-pointer" @click="goToPendingApprovals">
               <v-card-text class="d-flex justify-space-between align-center">
                 <div>
                   <div class="text-caption text-medium-emphasis mb-1">Pending Approvals</div>
@@ -68,7 +74,7 @@
               </v-col>
 
               <v-col cols="12" sm="6">
-                <v-card variant="outlined" class="rounded-lg mb-3 cursor-pointer" @click="goToLeave">
+                <v-card variant="outlined" class="rounded-lg mb-3 cursor-pointer" @click="goToLeaveToday">
                   <v-card-text>
                     <div class="text-caption text-medium-emphasis">On Leave Today</div>
                     <div class="d-flex align-center justify-space-between mt-2">
@@ -96,7 +102,7 @@
               </v-col>
 
               <v-col cols="12" sm="6">
-                <v-card variant="outlined" class="rounded-lg mb-3 cursor-pointer" @click="goToLeave">
+                <v-card variant="outlined" class="rounded-lg mb-3 cursor-pointer" @click="goToPendingApprovals">
                   <v-card-text>
                     <div class="text-caption text-medium-emphasis">Pending Approvals</div>
                     <div class="d-flex align-center justify-space-between mt-2">
@@ -243,6 +249,7 @@
         </v-row>
       </template>
     </v-container>
+    </template>
   </DashboardLayout>
 </template>
 
@@ -252,11 +259,18 @@ import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import DashboardLayout from '@/layouts/dashboard/DashboardLayout.vue';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import EmployeeSelfServiceDashboard from '@/views/hr/dashboard/EmployeeSelfServiceDashboard.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Dashboard', disabled: true, href: '#' }
 ];
+
+const { can, hasRole } = usePermissions();
+const isEmployeeOnly = computed(() =>
+  !can('view employees') && hasRole('Employee')
+);
 
 const summary = ref({
   on_leave: 0,
@@ -315,6 +329,11 @@ const chartOptions = computed(() => ({
 }));
 
 onMounted(async () => {
+  if (isEmployeeOnly.value) {
+    loading.value = false;
+    return;
+  }
+
   try {
     await Promise.all([
       fetchSummary(),
@@ -399,6 +418,14 @@ function goToEmployees() {
 
 function goToLeave() {
   router.visit('/hr/leave-management');
+}
+
+function goToLeaveToday() {
+  router.visit('/hr/leave-management?status=Approved&today=1');
+}
+
+function goToPendingApprovals() {
+  router.visit('/hr/leave-management?status=Pending');
 }
 
 function goToJobs() {

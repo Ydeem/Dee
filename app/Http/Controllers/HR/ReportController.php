@@ -5,6 +5,7 @@ namespace App\Http\Controllers\HR;
 use App\Http\Controllers\Controller;
 use App\Models\HR\Applicant;
 use App\Models\HR\Attendance;
+use App\Models\HR\ChatbotAudit;
 use App\Models\HR\Department;
 use App\Models\HR\Employee;
 use App\Models\HR\Expense;
@@ -294,4 +295,109 @@ class ReportController extends Controller
             'top_category' => $byCategory->first()?->category ?? 'N/A',
         ]);
     }
+
+    public function chatbotAudit(Request $request)
+    {
+        $user = $request->user();
+        abort_if(! $user || ! ($user->isHrAdmin() || $user->hasPermission('view reports')), 403, 'Unauthorized');
+
+        $days = max(1, min((int) $request->integer('days', 7), 90));
+        $from = now()->subDays($days);
+
+        if (!Schema::hasTable('hr_chatbot_audits')) {
+            return response()->json([
+                'period_days' => $days,
+                'summary' => [
+                    'total_requests' => 0,
+                    'allowed_requests' => 0,
+                    'blocked_requests' => 0,
+                    'blocked_rate' => 0,
+                    'avg_response_ms' => 0,
+                    'slow_over_3s' => 0,
+                ],
+                'by_topic' => [],
+                'by_role' => [],
+                'recent_blocked' => [],
+                'generated_at' => now()->toISOString(),
+            ]);
+        }
+
+
+        $base = ChatbotAudit::query()->where('created_at', '>=', $from);
+
+        $total = (clone $base)->count();
+        $blocked = (clone $base)->where('blocked', true)->count();
+        $allowed = max($total - $blocked, 0);
+
+        $avgResponseMs = (int) round((float) ((clone $base)->avg('response_time_ms') ?? 0));
+
+        $byTopic = (clone $base)
+            ->selectRaw('COALESCE(topic, "general") as topic, COUNT(*) as total, SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_total')
+            ->groupBy('topic')
+            ->orderByDesc('total')
+            ->limit(8)
+            ->get()
+            ->map(fn ($row) => [
+                'topic' => $row->topic,
+                'total' => (int) $row->total,
+                'blocked' => (int) ($row->blocked_total ?? 0),
+            ])
+            ->values();
+
+        $byRole = (clone $base)
+            ->selectRaw('COALESCE(role_label, "Unknown") as role_label, COUNT(*) as total, SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_total')
+            ->groupBy('role_label')
+            ->orderByDesc('total')
+            ->limit(8)
+            ->get()
+            ->map(fn ($row) => [
+                'role' => $row->role_label,
+                'total' => (int) $row->total,
+                'blocked' => (int) ($row->blocked_total ?? 0),
+            ])
+            ->values();
+
+        $recentBlocked = (clone $base)
+            ->where('blocked', true)
+            ->latest('created_at')
+            ->limit(10)
+            ->get([
+                'id',
+                'user_name',
+                'role_label',
+                'topic',
+                'message',
+                'block_reason',
+                'created_at',
+            ])
+            ->map(fn ($row) => [
+                'id' => $row->id,
+                'user_name' => $row->user_name,
+                'role_label' => $row->role_label,
+                'topic' => $row->topic,
+                'message' => $row->message,
+                'block_reason' => $row->block_reason,
+                'created_at' => $row->created_at?->toISOString(),
+            ])
+            ->values();
+
+        return response()->json([
+            'period_days' => $days,
+            'summary' => [
+                'total_requests' => $total,
+                'allowed_requests' => $allowed,
+                'blocked_requests' => $blocked,
+                'blocked_rate' => $total > 0 ? round(($blocked / $total) * 100, 1) : 0,
+                'avg_response_ms' => $avgResponseMs,
+                'slow_over_3s' => (clone $base)->where('response_time_ms', '>', 3000)->count(),
+            ],
+            'by_topic' => $byTopic,
+            'by_role' => $byRole,
+            'recent_blocked' => $recentBlocked,
+            'generated_at' => now()->toISOString(),
+        ]);
+    }
 }
+
+
+

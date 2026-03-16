@@ -2,11 +2,18 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import BaseBreadcrumb from '@/components/shared/BaseBreadcrumb.vue';
+import UnauthorizedPage from '@/components/HR/UnauthorizedPage.vue';
+import { usePermissions } from '@/composables/usePermissions';
 
 const breadcrumbs = [
   { title: 'HR Module', disabled: false, href: '#' },
   { title: 'Payroll', disabled: true, href: '#' }
 ];
+
+const { can } = usePermissions();
+const canViewPayroll = computed(() => can('view payroll'));
+const canProcessPayroll = computed(() => can('process payroll'));
+const canApprovePayroll = computed(() => can('approve payroll'));
 
 const activeTab = ref<'runs' | 'payslips' | 'structures'>('runs');
 const loading = ref(false);
@@ -404,12 +411,15 @@ onMounted(() => {
 <template>
   <BaseBreadcrumb title="Payroll" subtitle="Manage payroll runs, payslips and salary structures" :breadcrumbs="breadcrumbs" />
 
+  <UnauthorizedPage v-if="!canViewPayroll" />
+
+  <template v-else>
   <div class="d-flex justify-space-between align-center flex-wrap ga-2 mb-4">
     <div>
       <h2 class="text-h4 mb-1">Payroll</h2>
       <p class="text-medium-emphasis mb-0">Run monthly payroll and manage salary structures.</p>
     </div>
-    <v-btn color="primary" prepend-icon="mdi-plus" @click="newRunDialog = true">
+    <v-btn v-if="canProcessPayroll" color="primary" prepend-icon="mdi-plus" @click="newRunDialog = true">
       New Payroll Run
     </v-btn>
   </div>
@@ -473,7 +483,7 @@ onMounted(() => {
 
                   <div class="d-flex flex-wrap ga-2">
                     <v-btn
-                      v-if="run.status === 'Pending Approval'"
+                      v-if="run.status === 'Pending Approval' && canApprovePayroll"
                       color="success"
                       variant="flat"
                       size="small"
@@ -484,7 +494,7 @@ onMounted(() => {
                     </v-btn>
 
                     <v-btn
-                      v-if="run.status === 'Approved'"
+                      v-if="run.status === 'Approved' && canProcessPayroll"
                       color="primary"
                       variant="flat"
                       size="small"
@@ -493,7 +503,7 @@ onMounted(() => {
                       Mark as Paid
                     </v-btn>
 
-                    <v-btn variant="outlined" size="small" @click="openPayslipsDialog(run)">
+                    <v-btn v-if="canViewPayroll" variant="outlined" size="small" @click="openPayslipsDialog(run)">
                       View Payslips
                     </v-btn>
 
@@ -731,6 +741,7 @@ onMounted(() => {
       </v-card-actions>
     </v-card>
   </v-dialog>
+  </template>
 
   <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">{{ snackbar.message }}</v-snackbar>
 </template>
